@@ -1,0 +1,33 @@
+/**
+ * Application Constants
+ */
+
+import { MCPServerConfig } from '../types/mcp';
+
+// Twitter API limits
+export const TWITTER_LIMITS = {
+  MAX_TWEETS_PER_REQUEST: 100,
+  DEFAULT_TWEETS_LIMIT: 10,
+  MAX_TWEET_LENGTH: 280,
+  MAX_TWEET_LENGTH_PREMIUM: 4000,
+  POSTING_MONTHLY_LIMIT_FREE: 1500,
+} as const;
+
+// Server configuration
+export const SERVER_CONFIG: MCPServerConfig = {
+  name: 'twitter-mcp',
+  version: '1.0.0',
+} as const;
+
+// Twitter API base URLs
+export const TWITTER_API_URLS = {
+  API_V2: 'https://api.x.com/2',
+} as const;
+
+// Tool categories for Twitter operations
+export const TOOL_CATEGORIES = {
+  TWEETS: 'Tweet Operations',
+  USERS: 'User Operations',
+  SEARCH: 'Search Operations',
+  POSTING: 'Posting Operations',
+} as const;
