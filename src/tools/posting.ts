@@ -246,7 +246,7 @@ const deleteTweet = async (args: { tweet_id: string }) => {
 // Tool definitions
 export const postingTools: MCPToolDefinition[] = [
   {
-    name: 'post_tweet',
+    name: 'twitter_post_tweet',
     description:
       'Post a new tweet. Requires user authentication (TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET). Can optionally reply to an existing tweet. Free tier allows up to 1,500 tweets per month.',
     inputSchema: {
@@ -273,7 +273,7 @@ export const postingTools: MCPToolDefinition[] = [
     handler: postTweet,
   },
   {
-    name: 'reply_to_tweet',
+    name: 'twitter_reply_to_tweet',
     description:
       'Reply to an existing tweet. Requires user authentication (TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET).',
     inputSchema: {
@@ -300,7 +300,7 @@ export const postingTools: MCPToolDefinition[] = [
     handler: replyToTweet,
   },
   {
-    name: 'like_tweet',
+    name: 'twitter_like_tweet',
     description:
       'Like a tweet. Requires user authentication (TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET).',
     inputSchema: {
@@ -316,7 +316,7 @@ export const postingTools: MCPToolDefinition[] = [
     handler: likeTweet,
   },
   {
-    name: 'unlike_tweet',
+    name: 'twitter_unlike_tweet',
     description:
       'Remove a like from a tweet. Requires user authentication (TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET).',
     inputSchema: {
@@ -332,7 +332,7 @@ export const postingTools: MCPToolDefinition[] = [
     handler: unlikeTweet,
   },
   {
-    name: 'retweet',
+    name: 'twitter_retweet',
     description:
       'Retweet a tweet. Requires user authentication (TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET).',
     inputSchema: {
@@ -348,7 +348,7 @@ export const postingTools: MCPToolDefinition[] = [
     handler: retweet,
   },
   {
-    name: 'unretweet',
+    name: 'twitter_unretweet',
     description:
       'Remove a retweet. Requires user authentication (TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET).',
     inputSchema: {
@@ -364,7 +364,7 @@ export const postingTools: MCPToolDefinition[] = [
     handler: unretweet,
   },
   {
-    name: 'delete_tweet',
+    name: 'twitter_delete_tweet',
     description:
       'Delete a tweet. Requires user authentication (TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET). Can only delete your own tweets.',
     inputSchema: {

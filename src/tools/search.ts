@@ -66,7 +66,7 @@ const searchTweets = async (args: {
 // Tool definitions
 export const searchTools: MCPToolDefinition[] = [
   {
-    name: 'search_tweets',
+    name: 'twitter_search_tweets',
     description:
       'Search Twitter for tweets matching a query string. Supports advanced query operators and time-based filtering. Includes pagination for browsing through large result sets. ⚠️ Requires Basic tier ($100/mo) or higher - Free tier does not include search functionality. Essential for finding specific content, discussions, or information on Twitter.',
     inputSchema: {

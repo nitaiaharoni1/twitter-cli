@@ -127,6 +127,20 @@ export class TwitterClient {
 
       return tweet.data as TwitterTweet;
     } catch (error: any) {
+      // Handle rate limiting
+      if (error.code === 429 || error.status === 429) {
+        const retryAfter = error.rateLimit?.reset || error.headers?.['x-rate-limit-reset'];
+        const message = retryAfter 
+          ? `Rate limit exceeded. Please wait until ${new Date(retryAfter * 1000).toISOString()} before retrying.`
+          : 'Rate limit exceeded. Please wait before retrying.';
+        throw new Error(`Twitter API error: ${message}`);
+      }
+      // Handle authentication errors
+      if (error.code === 403 || error.status === 403) {
+        throw new Error(
+          `Twitter API error: Request failed with code 403 - Authentication required. For write operations, please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.`
+        );
+      }
       throw new Error(
         `Twitter API error: ${error.message || error.data?.detail || 'Unknown error'}`
       );
@@ -165,6 +179,20 @@ export class TwitterClient {
         includes: timeline.data.includes,
       } as TwitterTimelineResponse;
     } catch (error: any) {
+      // Handle rate limiting
+      if (error.code === 429 || error.status === 429) {
+        const retryAfter = error.rateLimit?.reset || error.headers?.['x-rate-limit-reset'];
+        const message = retryAfter 
+          ? `Rate limit exceeded. Please wait until ${new Date(retryAfter * 1000).toISOString()} before retrying.`
+          : 'Rate limit exceeded. Please wait before retrying.';
+        throw new Error(`Twitter API error: ${message}`);
+      }
+      // Handle authentication errors
+      if (error.code === 403 || error.status === 403) {
+        throw new Error(
+          `Twitter API error: Request failed with code 403 - Authentication required. For write operations, please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.`
+        );
+      }
       throw new Error(
         `Twitter API error: ${error.message || error.data?.detail || 'Unknown error'}`
       );
@@ -189,6 +217,20 @@ export class TwitterClient {
 
       return user.data as TwitterUser;
     } catch (error: any) {
+      // Handle rate limiting
+      if (error.code === 429 || error.status === 429) {
+        const retryAfter = error.rateLimit?.reset || error.headers?.['x-rate-limit-reset'];
+        const message = retryAfter 
+          ? `Rate limit exceeded. Please wait until ${new Date(retryAfter * 1000).toISOString()} before retrying.`
+          : 'Rate limit exceeded. Please wait before retrying.';
+        throw new Error(`Twitter API error: ${message}`);
+      }
+      // Handle authentication errors
+      if (error.code === 403 || error.status === 403) {
+        throw new Error(
+          `Twitter API error: Request failed with code 403 - Authentication required. For write operations, please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.`
+        );
+      }
       throw new Error(
         `Twitter API error: ${error.message || error.data?.detail || 'Unknown error'}`
       );
@@ -210,6 +252,20 @@ export class TwitterClient {
 
       return user.data as TwitterUser;
     } catch (error: any) {
+      // Handle rate limiting
+      if (error.code === 429 || error.status === 429) {
+        const retryAfter = error.rateLimit?.reset || error.headers?.['x-rate-limit-reset'];
+        const message = retryAfter 
+          ? `Rate limit exceeded. Please wait until ${new Date(retryAfter * 1000).toISOString()} before retrying.`
+          : 'Rate limit exceeded. Please wait before retrying.';
+        throw new Error(`Twitter API error: ${message}`);
+      }
+      // Handle authentication errors
+      if (error.code === 403 || error.status === 403) {
+        throw new Error(
+          `Twitter API error: Request failed with code 403 - Authentication required. For write operations, please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.`
+        );
+      }
       throw new Error(
         `Twitter API error: ${error.message || error.data?.detail || 'Unknown error'}`
       );
@@ -253,10 +309,24 @@ export class TwitterClient {
         includes: search.data.includes,
       } as TwitterSearchResponse;
     } catch (error: any) {
+      // Handle rate limiting
+      if (error.code === 429 || error.status === 429) {
+        const retryAfter = error.rateLimit?.reset || error.headers?.['x-rate-limit-reset'];
+        const message = retryAfter 
+          ? `Rate limit exceeded. Please wait until ${new Date(retryAfter * 1000).toISOString()} before retrying.`
+          : 'Rate limit exceeded. Please wait before retrying.';
+        throw new Error(`Twitter API error: ${message}`);
+      }
       // Check if it's a tier limitation error
-      if (error.code === 403 || error.message?.includes('not authorized')) {
+      if (error.code === 403 || error.status === 403 || error.message?.includes('not authorized')) {
+        const detail = error.data?.detail || error.message || '';
+        if (detail.includes('search') || detail.includes('tier')) {
+          throw new Error(
+            'Twitter API error: Search API requires Basic tier ($100/mo) or higher. Free tier does not include search functionality.'
+          );
+        }
         throw new Error(
-          'Search API requires Basic tier ($100/mo) or higher. Free tier does not include search functionality.'
+          `Twitter API error: Request failed with code 403 - Authentication required. For write operations, please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.`
         );
       }
       throw new Error(
@@ -299,6 +369,20 @@ export class TwitterClient {
       // Fetch the full tweet data
       return await this.getTweet(tweet.data.id);
     } catch (error: any) {
+      // Handle rate limiting
+      if (error.code === 429 || error.status === 429) {
+        const retryAfter = error.rateLimit?.reset || error.headers?.['x-rate-limit-reset'];
+        const message = retryAfter 
+          ? `Rate limit exceeded. Please wait until ${new Date(retryAfter * 1000).toISOString()} before retrying.`
+          : 'Rate limit exceeded. Please wait before retrying.';
+        throw new Error(`Twitter API error: ${message}`);
+      }
+      // Handle authentication errors
+      if (error.code === 403 || error.status === 403) {
+        throw new Error(
+          `Twitter API error: Request failed with code 403 - Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET environment variables.`
+        );
+      }
       throw new Error(
         `Twitter API error: ${error.message || error.data?.detail || 'Unknown error'}`
       );
@@ -329,6 +413,20 @@ export class TwitterClient {
       const result = await this.writeClient.v2.like(userId, tweetId);
       return { liked: result.data?.liked || false };
     } catch (error: any) {
+      // Handle rate limiting
+      if (error.code === 429 || error.status === 429) {
+        const retryAfter = error.rateLimit?.reset || error.headers?.['x-rate-limit-reset'];
+        const message = retryAfter 
+          ? `Rate limit exceeded. Please wait until ${new Date(retryAfter * 1000).toISOString()} before retrying.`
+          : 'Rate limit exceeded. Please wait before retrying.';
+        throw new Error(`Twitter API error: ${message}`);
+      }
+      // Handle authentication errors
+      if (error.code === 403 || error.status === 403) {
+        throw new Error(
+          `Twitter API error: Request failed with code 403 - Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET environment variables.`
+        );
+      }
       throw new Error(
         `Twitter API error: ${error.message || error.data?.detail || 'Unknown error'}`
       );
@@ -349,6 +447,20 @@ export class TwitterClient {
       await this.writeClient.v2.unlike(userId, tweetId);
       return { liked: false };
     } catch (error: any) {
+      // Handle rate limiting
+      if (error.code === 429 || error.status === 429) {
+        const retryAfter = error.rateLimit?.reset || error.headers?.['x-rate-limit-reset'];
+        const message = retryAfter 
+          ? `Rate limit exceeded. Please wait until ${new Date(retryAfter * 1000).toISOString()} before retrying.`
+          : 'Rate limit exceeded. Please wait before retrying.';
+        throw new Error(`Twitter API error: ${message}`);
+      }
+      // Handle authentication errors
+      if (error.code === 403 || error.status === 403) {
+        throw new Error(
+          `Twitter API error: Request failed with code 403 - Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET environment variables.`
+        );
+      }
       throw new Error(
         `Twitter API error: ${error.message || error.data?.detail || 'Unknown error'}`
       );
@@ -369,6 +481,20 @@ export class TwitterClient {
       const result = await this.writeClient.v2.retweet(userId, tweetId);
       return { retweeted: result.data?.retweeted || false };
     } catch (error: any) {
+      // Handle rate limiting
+      if (error.code === 429 || error.status === 429) {
+        const retryAfter = error.rateLimit?.reset || error.headers?.['x-rate-limit-reset'];
+        const message = retryAfter 
+          ? `Rate limit exceeded. Please wait until ${new Date(retryAfter * 1000).toISOString()} before retrying.`
+          : 'Rate limit exceeded. Please wait before retrying.';
+        throw new Error(`Twitter API error: ${message}`);
+      }
+      // Handle authentication errors
+      if (error.code === 403 || error.status === 403) {
+        throw new Error(
+          `Twitter API error: Request failed with code 403 - Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET environment variables.`
+        );
+      }
       throw new Error(
         `Twitter API error: ${error.message || error.data?.detail || 'Unknown error'}`
       );
@@ -389,6 +515,20 @@ export class TwitterClient {
       await this.writeClient.v2.unretweet(userId, tweetId);
       return { retweeted: false };
     } catch (error: any) {
+      // Handle rate limiting
+      if (error.code === 429 || error.status === 429) {
+        const retryAfter = error.rateLimit?.reset || error.headers?.['x-rate-limit-reset'];
+        const message = retryAfter 
+          ? `Rate limit exceeded. Please wait until ${new Date(retryAfter * 1000).toISOString()} before retrying.`
+          : 'Rate limit exceeded. Please wait before retrying.';
+        throw new Error(`Twitter API error: ${message}`);
+      }
+      // Handle authentication errors
+      if (error.code === 403 || error.status === 403) {
+        throw new Error(
+          `Twitter API error: Request failed with code 403 - Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET environment variables.`
+        );
+      }
       throw new Error(
         `Twitter API error: ${error.message || error.data?.detail || 'Unknown error'}`
       );
@@ -409,6 +549,20 @@ export class TwitterClient {
       await this.writeClient.v2.deleteTweet(tweetId);
       return { deleted: true };
     } catch (error: any) {
+      // Handle rate limiting
+      if (error.code === 429 || error.status === 429) {
+        const retryAfter = error.rateLimit?.reset || error.headers?.['x-rate-limit-reset'];
+        const message = retryAfter 
+          ? `Rate limit exceeded. Please wait until ${new Date(retryAfter * 1000).toISOString()} before retrying.`
+          : 'Rate limit exceeded. Please wait before retrying.';
+        throw new Error(`Twitter API error: ${message}`);
+      }
+      // Handle authentication errors
+      if (error.code === 403 || error.status === 403) {
+        throw new Error(
+          `Twitter API error: Request failed with code 403 - Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET environment variables.`
+        );
+      }
       throw new Error(
         `Twitter API error: ${error.message || error.data?.detail || 'Unknown error'}`
       );
@@ -436,6 +590,20 @@ export class TwitterClient {
 
       return me.data as TwitterUser;
     } catch (error: any) {
+      // Handle rate limiting
+      if (error.code === 429 || error.status === 429) {
+        const retryAfter = error.rateLimit?.reset || error.headers?.['x-rate-limit-reset'];
+        const message = retryAfter 
+          ? `Rate limit exceeded. Please wait until ${new Date(retryAfter * 1000).toISOString()} before retrying.`
+          : 'Rate limit exceeded. Please wait before retrying.';
+        throw new Error(`Twitter API error: ${message}`);
+      }
+      // Handle authentication errors
+      if (error.code === 403 || error.status === 403) {
+        throw new Error(
+          `Twitter API error: Request failed with code 403 - Getting current user requires OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET environment variables.`
+        );
+      }
       throw new Error(
         `Twitter API error: ${error.message || error.data?.detail || 'Unknown error'}`
       );

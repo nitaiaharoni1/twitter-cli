@@ -163,7 +163,7 @@ const getUserReplies = async (args: {
 // Tool definitions
 export const userTools: MCPToolDefinition[] = [
   {
-    name: 'get_user_info',
+    name: 'twitter_get_user_info',
     description:
       'Retrieve comprehensive profile information about a Twitter user including their follower count, following count, tweet count, verification status, account creation date, and profile metadata. Useful for understanding a user\'s reputation and activity level on Twitter.',
     inputSchema: {
@@ -179,7 +179,7 @@ export const userTools: MCPToolDefinition[] = [
     handler: getUserInfo,
   },
   {
-    name: 'get_user_tweets',
+    name: 'twitter_get_user_tweets',
     description:
       'Fetch all tweets posted by a specific Twitter user. Supports pagination for browsing through a user\'s entire tweet history. Perfect for analyzing a user\'s contributions or finding their content.',
     inputSchema: {
@@ -212,7 +212,7 @@ export const userTools: MCPToolDefinition[] = [
     handler: getUserTweets,
   },
   {
-    name: 'get_user_replies',
+    name: 'twitter_get_user_replies',
     description:
       'Retrieve all replies made by a specific Twitter user (tweets that are replies to other tweets). Supports pagination for browsing through a user\'s entire reply history. Useful for understanding a user\'s discussion participation and finding their most engaging replies.',
     inputSchema: {

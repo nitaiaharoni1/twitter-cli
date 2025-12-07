@@ -41,24 +41,24 @@ export function getClaudeConfigPath(): string {
 /**
  * Generate Claude Desktop configuration for NPX usage
  */
-export function generateNpxConfig(redditConfig: {
-  clientId: string;
-  clientSecret: string;
-  userAgent: string;
-  username?: string;
-  password?: string;
+export function generateNpxConfig(twitterConfig: {
+  apiKey: string;
+  apiSecret: string;
+  bearerToken?: string;
+  accessToken?: string;
+  accessSecret?: string;
 }): ClaudeConfig {
   return {
     mcpServers: {
-      'reddit-mcp': {
+      'mcp-twitter': {
         command: 'npx',
-        args: ['reddit-mcp'],
+        args: ['mcp-twitter'],
         env: {
-          REDDIT_CLIENT_ID: redditConfig.clientId,
-          REDDIT_CLIENT_SECRET: redditConfig.clientSecret,
-          REDDIT_USER_AGENT: redditConfig.userAgent,
-          ...(redditConfig.username && { REDDIT_USERNAME: redditConfig.username }),
-          ...(redditConfig.password && { REDDIT_PASSWORD: redditConfig.password }),
+          TWITTER_API_KEY: twitterConfig.apiKey,
+          TWITTER_API_SECRET: twitterConfig.apiSecret,
+          ...(twitterConfig.bearerToken && { TWITTER_BEARER_TOKEN: twitterConfig.bearerToken }),
+          ...(twitterConfig.accessToken && { TWITTER_ACCESS_TOKEN: twitterConfig.accessToken }),
+          ...(twitterConfig.accessSecret && { TWITTER_ACCESS_SECRET: twitterConfig.accessSecret }),
         }
       }
     }
@@ -68,23 +68,23 @@ export function generateNpxConfig(redditConfig: {
 /**
  * Generate Claude Desktop configuration for global installation
  */
-export function generateGlobalConfig(redditConfig: {
-  clientId: string;
-  clientSecret: string;
-  userAgent: string;
-  username?: string;
-  password?: string;
+export function generateGlobalConfig(twitterConfig: {
+  apiKey: string;
+  apiSecret: string;
+  bearerToken?: string;
+  accessToken?: string;
+  accessSecret?: string;
 }): ClaudeConfig {
   return {
     mcpServers: {
-      'reddit-mcp': {
-        command: 'reddit-mcp',
+      'mcp-twitter': {
+        command: 'mcp-twitter',
         env: {
-          REDDIT_CLIENT_ID: redditConfig.clientId,
-          REDDIT_CLIENT_SECRET: redditConfig.clientSecret,
-          REDDIT_USER_AGENT: redditConfig.userAgent,
-          ...(redditConfig.username && { REDDIT_USERNAME: redditConfig.username }),
-          ...(redditConfig.password && { REDDIT_PASSWORD: redditConfig.password }),
+          TWITTER_API_KEY: twitterConfig.apiKey,
+          TWITTER_API_SECRET: twitterConfig.apiSecret,
+          ...(twitterConfig.bearerToken && { TWITTER_BEARER_TOKEN: twitterConfig.bearerToken }),
+          ...(twitterConfig.accessToken && { TWITTER_ACCESS_TOKEN: twitterConfig.accessToken }),
+          ...(twitterConfig.accessSecret && { TWITTER_ACCESS_SECRET: twitterConfig.accessSecret }),
         }
       }
     }
@@ -94,24 +94,24 @@ export function generateGlobalConfig(redditConfig: {
 /**
  * Generate Claude Desktop configuration for local development
  */
-export function generateLocalConfig(redditConfig: {
-  clientId: string;
-  clientSecret: string;
-  userAgent: string;
-  username?: string;
-  password?: string;
+export function generateLocalConfig(twitterConfig: {
+  apiKey: string;
+  apiSecret: string;
+  bearerToken?: string;
+  accessToken?: string;
+  accessSecret?: string;
 }, projectPath: string): ClaudeConfig {
   return {
     mcpServers: {
-      'reddit-mcp': {
+      'mcp-twitter': {
         command: 'node',
         args: [path.join(projectPath, 'dist', 'server.js')],
         env: {
-          REDDIT_CLIENT_ID: redditConfig.clientId,
-          REDDIT_CLIENT_SECRET: redditConfig.clientSecret,
-          REDDIT_USER_AGENT: redditConfig.userAgent,
-          ...(redditConfig.username && { REDDIT_USERNAME: redditConfig.username }),
-          ...(redditConfig.password && { REDDIT_PASSWORD: redditConfig.password }),
+          TWITTER_API_KEY: twitterConfig.apiKey,
+          TWITTER_API_SECRET: twitterConfig.apiSecret,
+          ...(twitterConfig.bearerToken && { TWITTER_BEARER_TOKEN: twitterConfig.bearerToken }),
+          ...(twitterConfig.accessToken && { TWITTER_ACCESS_TOKEN: twitterConfig.accessToken }),
+          ...(twitterConfig.accessSecret && { TWITTER_ACCESS_SECRET: twitterConfig.accessSecret }),
         }
       }
     }
@@ -160,14 +160,14 @@ export function writeClaudeConfig(config: ClaudeConfig): boolean {
 }
 
 /**
- * Merge reddit-mcp configuration into existing Claude config
+ * Merge mcp-twitter configuration into existing Claude config
  */
-export function mergeClaudeConfig(redditConfig: {
-  clientId: string;
-  clientSecret: string;
-  userAgent: string;
-  username?: string;
-  password?: string;
+export function mergeClaudeConfig(twitterConfig: {
+  apiKey: string;
+  apiSecret: string;
+  bearerToken?: string;
+  accessToken?: string;
+  accessSecret?: string;
 }, useNpx: boolean = true): boolean {
   try {
     let existingConfig = readClaudeConfig();
@@ -182,11 +182,11 @@ export function mergeClaudeConfig(redditConfig: {
     
     // Generate the appropriate configuration
     const newConfig = useNpx 
-      ? generateNpxConfig(redditConfig)
-      : generateGlobalConfig(redditConfig);
+      ? generateNpxConfig(twitterConfig)
+      : generateGlobalConfig(twitterConfig);
     
-    // Merge reddit-mcp server configuration
-    existingConfig.mcpServers['reddit-mcp'] = newConfig.mcpServers['reddit-mcp'];
+    // Merge mcp-twitter server configuration
+    existingConfig.mcpServers['mcp-twitter'] = newConfig.mcpServers['mcp-twitter'];
     
     return writeClaudeConfig(existingConfig);
   } catch (error) {

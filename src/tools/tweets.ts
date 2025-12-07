@@ -99,7 +99,7 @@ const getUserTimeline = async (args: {
 // Tool definitions
 export const tweetTools: MCPToolDefinition[] = [
   {
-    name: 'get_tweet',
+    name: 'twitter_get_tweet',
     description:
       'Fetch detailed information about a specific tweet by its ID, including text, author, metrics (likes, retweets, replies), timestamps, and metadata. Useful for retrieving complete tweet details when you have the tweet ID.',
     inputSchema: {
@@ -115,7 +115,7 @@ export const tweetTools: MCPToolDefinition[] = [
     handler: getTweet,
   },
   {
-    name: 'get_user_timeline',
+    name: 'twitter_get_user_timeline',
     description:
       'Retrieve tweets from a specific user\'s timeline. Supports pagination for browsing through multiple pages of results. Perfect for exploring user content or monitoring specific accounts.',
     inputSchema: {
