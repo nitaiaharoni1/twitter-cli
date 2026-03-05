@@ -626,6 +626,289 @@ export class TwitterClient {
   }
 
   /**
+   * Follow a user ($0.015 / request — User Interaction: Create).
+   * Requires the authenticated user's ID (getMe).
+   */
+  async followUser(sourceUserId: string, targetUserId: string): Promise<{ following: boolean }> {
+    if (!this.writeClient) {
+      throw new Error(
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+    try {
+      const result = await this.writeClient.v2.follow(sourceUserId, targetUserId);
+      return { following: result.data?.following ?? true };
+    } catch (error) {
+      handleApiError(
+        error,
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+  }
+
+  /**
+   * Unfollow a user ($0.015 / request — User Interaction: Create).
+   */
+  async unfollowUser(sourceUserId: string, targetUserId: string): Promise<{ following: boolean }> {
+    if (!this.writeClient) {
+      throw new Error(
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+    try {
+      await this.writeClient.v2.unfollow(sourceUserId, targetUserId);
+      return { following: false };
+    } catch (error) {
+      handleApiError(
+        error,
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+  }
+
+  /**
+   * Block a user ($0.015 / request — User Interaction: Create).
+   */
+  async blockUser(sourceUserId: string, targetUserId: string): Promise<{ blocking: boolean }> {
+    if (!this.writeClient) {
+      throw new Error(
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+    try {
+      const result = await this.writeClient.v2.block(sourceUserId, targetUserId);
+      return { blocking: result.data?.blocking ?? true };
+    } catch (error) {
+      handleApiError(
+        error,
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+  }
+
+  /**
+   * Unblock a user ($0.015 / request — User Interaction: Create).
+   */
+  async unblockUser(sourceUserId: string, targetUserId: string): Promise<{ blocking: boolean }> {
+    if (!this.writeClient) {
+      throw new Error(
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+    try {
+      await this.writeClient.v2.unblock(sourceUserId, targetUserId);
+      return { blocking: false };
+    } catch (error) {
+      handleApiError(
+        error,
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+  }
+
+  /**
+   * Mute a user ($0.015 / request — User Interaction: Create).
+   */
+  async muteUser(sourceUserId: string, targetUserId: string): Promise<{ muting: boolean }> {
+    if (!this.writeClient) {
+      throw new Error(
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+    try {
+      const result = await this.writeClient.v2.mute(sourceUserId, targetUserId);
+      return { muting: result.data?.muting ?? true };
+    } catch (error) {
+      handleApiError(
+        error,
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+  }
+
+  /**
+   * Unmute a user ($0.015 / request — User Interaction: Create).
+   */
+  async unmuteUser(sourceUserId: string, targetUserId: string): Promise<{ muting: boolean }> {
+    if (!this.writeClient) {
+      throw new Error(
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+    try {
+      await this.writeClient.v2.unmute(sourceUserId, targetUserId);
+      return { muting: false };
+    } catch (error) {
+      handleApiError(
+        error,
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+  }
+
+  /**
+   * Bookmark a tweet ($0.015 / request — User Interaction: Create).
+   * Uses the authenticated user from the client.
+   */
+  async bookmarkTweet(tweetId: string): Promise<{ bookmarked: boolean }> {
+    if (!this.writeClient) {
+      throw new Error(
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+    try {
+      const result = await this.writeClient.v2.bookmark(tweetId);
+      return { bookmarked: result.data?.bookmarked ?? true };
+    } catch (error) {
+      handleApiError(
+        error,
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+  }
+
+  /**
+   * Remove a bookmark from a tweet ($0.015 / request — User Interaction: Create).
+   * Uses the authenticated user from the client.
+   */
+  async unbookmarkTweet(tweetId: string): Promise<{ bookmarked: boolean }> {
+    if (!this.writeClient) {
+      throw new Error(
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+    try {
+      await this.writeClient.v2.deleteBookmark(tweetId);
+      return { bookmarked: false };
+    } catch (error) {
+      handleApiError(
+        error,
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+  }
+
+  /**
+   * Get the authenticated user's bookmarks (requires OAuth 1.0a).
+   * The bookmarks endpoint uses the authenticated user from the client.
+   */
+  async getBookmarks(options: { maxResults?: number; paginationToken?: string } = {}): Promise<{
+    data: TwitterTweet[];
+    meta: { result_count: number; next_token?: string };
+    includes?: { users?: TwitterUser[]; tweets?: TwitterTweet[] };
+  }> {
+    if (!this.writeClient) {
+      throw new Error(
+        'Bookmarks require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+    try {
+      const maxResults = Math.min(Math.max(options.maxResults || 10, 5), 100);
+      const params: Record<string, unknown> = {
+        max_results: maxResults,
+        'tweet.fields': TWEET_FIELDS,
+        expansions: ['author_id', 'referenced_tweets.id'],
+        'user.fields': USER_FIELDS,
+      };
+      if (options.paginationToken) params.pagination_token = options.paginationToken;
+
+      const bookmarks = await this.writeClient.v2.bookmarks(params as any);
+      const tweets = (bookmarks.tweets || []) as TwitterTweet[];
+      cacheTweets(tweets);
+      harvestIncludedUsers((bookmarks as any).includes);
+
+      return {
+        data: tweets,
+        meta: (bookmarks.meta as any) || { result_count: 0 },
+        includes: (bookmarks as any).includes,
+      };
+    } catch (error) {
+      handleApiError(
+        error,
+        'Bookmarks require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+  }
+
+  /**
+   * Get followers of a user (read operation, bearer token).
+   */
+  async getFollowers(
+    userId: string,
+    options: { maxResults?: number; paginationToken?: string } = {}
+  ): Promise<{ data: TwitterUser[]; meta: { result_count: number; next_token?: string } }> {
+    try {
+      const maxResults = Math.min(Math.max(options.maxResults || 100, 1), 1000);
+      const params: Record<string, unknown> = {
+        max_results: maxResults,
+        'user.fields': USER_FIELDS,
+      };
+      if (options.paginationToken) params.pagination_token = options.paginationToken;
+
+      const resp = await this.readClient.v2.followers(userId, params as any);
+      const users = (resp.data || []) as TwitterUser[];
+      cacheUsers(users);
+
+      return {
+        data: users,
+        meta: resp.meta || { result_count: 0 },
+      };
+    } catch (error) {
+      handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
+    }
+  }
+
+  /**
+   * Get users that a user is following (read operation, bearer token).
+   */
+  async getFollowing(
+    userId: string,
+    options: { maxResults?: number; paginationToken?: string } = {}
+  ): Promise<{ data: TwitterUser[]; meta: { result_count: number; next_token?: string } }> {
+    try {
+      const maxResults = Math.min(Math.max(options.maxResults || 100, 1), 1000);
+      const params: Record<string, unknown> = {
+        max_results: maxResults,
+        'user.fields': USER_FIELDS,
+      };
+      if (options.paginationToken) params.pagination_token = options.paginationToken;
+
+      const resp = await this.readClient.v2.following(userId, params as any);
+      const users = (resp.data || []) as TwitterUser[];
+      cacheUsers(users);
+
+      return {
+        data: users,
+        meta: resp.meta || { result_count: 0 },
+      };
+    } catch (error) {
+      handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
+    }
+  }
+
+  /**
+   * Update the authenticated user's profile bio (description).
+   * Uses the v1.1 account/update_profile endpoint — the only one that supports
+   * profile field updates under standard OAuth 1.0a user context access.
+   */
+  async updateBio(description: string): Promise<{ description: string }> {
+    if (!this.writeClient) {
+      throw new Error(
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+    try {
+      const resp = await this.writeClient.v1.updateAccountProfile({ description });
+      return { description: resp.description ?? description };
+    } catch (error) {
+      handleApiError(
+        error,
+        'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
+      );
+    }
+  }
+
+  /**
    * Delete a tweet ($0.005 / request for Content: Manage).
    */
   async deleteTweet(tweetId: string): Promise<{ deleted: boolean }> {

@@ -376,6 +376,65 @@ user
     );
   });
 
+user
+  .command('update-bio <bio>')
+  .description('Update your profile bio (max 160 characters, requires write credentials)')
+  .action(async (bio: string) => {
+    const { followTools } = await import('./src/tools/follows');
+    const handler = followTools.find((t) => t.name === 'twitter_update_bio')!.handler;
+    printResult(await handler({ bio }));
+  });
+
+user
+  .command('bookmarks')
+  .description('List your bookmarked tweets (requires write credentials)')
+  .option('-n, --max-results <number>', 'Number of bookmarks to fetch (5-100)', '10')
+  .option('--pagination-token <token>', 'Pagination token for next page')
+  .action(async (opts) => {
+    const { followTools } = await import('./src/tools/follows');
+    const handler = followTools.find((t) => t.name === 'twitter_get_bookmarks')!.handler;
+    printResult(
+      await handler({
+        max_results: parseInt(opts.maxResults, 10),
+        pagination_token: opts.paginationToken,
+      }),
+    );
+  });
+
+user
+  .command('followers <username>')
+  .description('Get followers of a user')
+  .option('-n, --max-results <number>', 'Number of followers to fetch (1-1000)', '100')
+  .option('--pagination-token <token>', 'Pagination token for next page')
+  .action(async (username: string, opts) => {
+    const { userTools } = await import('./src/tools/users');
+    const handler = userTools.find((t) => t.name === 'twitter_get_followers')!.handler;
+    printResult(
+      await handler({
+        username,
+        max_results: parseInt(opts.maxResults, 10),
+        pagination_token: opts.paginationToken,
+      }),
+    );
+  });
+
+user
+  .command('following <username>')
+  .description('Get users that a user is following')
+  .option('-n, --max-results <number>', 'Number of users to fetch (1-1000)', '100')
+  .option('--pagination-token <token>', 'Pagination token for next page')
+  .action(async (username: string, opts) => {
+    const { userTools } = await import('./src/tools/users');
+    const handler = userTools.find((t) => t.name === 'twitter_get_following')!.handler;
+    printResult(
+      await handler({
+        username,
+        max_results: parseInt(opts.maxResults, 10),
+        pagination_token: opts.paginationToken,
+      }),
+    );
+  });
+
 // ─── Search commands ──────────────────────────────────────────────────────────
 
 const search = program.command('search').description('Search operations');
@@ -470,6 +529,78 @@ post
   .action(async (tweet_id: string) => {
     const { postingTools } = await import('./src/tools/posting');
     const handler = postingTools.find((t) => t.name === 'twitter_delete_tweet')!.handler;
+    printResult(await handler({ tweet_id }));
+  });
+
+post
+  .command('follow <username>')
+  .description('Follow a user')
+  .action(async (username: string) => {
+    const { followTools } = await import('./src/tools/follows');
+    const handler = followTools.find((t) => t.name === 'twitter_follow_user')!.handler;
+    printResult(await handler({ username }));
+  });
+
+post
+  .command('unfollow <username>')
+  .description('Unfollow a user')
+  .action(async (username: string) => {
+    const { followTools } = await import('./src/tools/follows');
+    const handler = followTools.find((t) => t.name === 'twitter_unfollow_user')!.handler;
+    printResult(await handler({ username }));
+  });
+
+post
+  .command('block <username>')
+  .description('Block a user')
+  .action(async (username: string) => {
+    const { followTools } = await import('./src/tools/follows');
+    const handler = followTools.find((t) => t.name === 'twitter_block_user')!.handler;
+    printResult(await handler({ username }));
+  });
+
+post
+  .command('unblock <username>')
+  .description('Unblock a user')
+  .action(async (username: string) => {
+    const { followTools } = await import('./src/tools/follows');
+    const handler = followTools.find((t) => t.name === 'twitter_unblock_user')!.handler;
+    printResult(await handler({ username }));
+  });
+
+post
+  .command('mute <username>')
+  .description('Mute a user')
+  .action(async (username: string) => {
+    const { followTools } = await import('./src/tools/follows');
+    const handler = followTools.find((t) => t.name === 'twitter_mute_user')!.handler;
+    printResult(await handler({ username }));
+  });
+
+post
+  .command('unmute <username>')
+  .description('Unmute a user')
+  .action(async (username: string) => {
+    const { followTools } = await import('./src/tools/follows');
+    const handler = followTools.find((t) => t.name === 'twitter_unmute_user')!.handler;
+    printResult(await handler({ username }));
+  });
+
+post
+  .command('bookmark <tweet_id>')
+  .description('Bookmark a tweet')
+  .action(async (tweet_id: string) => {
+    const { followTools } = await import('./src/tools/follows');
+    const handler = followTools.find((t) => t.name === 'twitter_bookmark_tweet')!.handler;
+    printResult(await handler({ tweet_id }));
+  });
+
+post
+  .command('unbookmark <tweet_id>')
+  .description('Remove a bookmark from a tweet')
+  .action(async (tweet_id: string) => {
+    const { followTools } = await import('./src/tools/follows');
+    const handler = followTools.find((t) => t.name === 'twitter_unbookmark_tweet')!.handler;
     printResult(await handler({ tweet_id }));
   });
 

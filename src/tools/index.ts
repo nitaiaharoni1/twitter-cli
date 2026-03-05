@@ -6,6 +6,7 @@ import { tweetTools } from './tweets';
 import { searchTools } from './search';
 import { userTools } from './users';
 import { postingTools } from './posting';
+import { followTools } from './follows';
 import { ToolDefinition } from '../types';
 
 export const allTools: ToolDefinition[] = [
@@ -13,4 +14,5 @@ export const allTools: ToolDefinition[] = [
   ...searchTools,
   ...userTools,
   ...postingTools,
+  ...followTools,
 ];

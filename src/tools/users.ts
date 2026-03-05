@@ -195,6 +195,92 @@ const whoami = async (_args: Record<string, never>) => {
 };
 
 /**
+ * Get followers of a user
+ */
+const getFollowers = async (args: {
+  username: string;
+  max_results?: number;
+  pagination_token?: string;
+}) => {
+  try {
+    const client = getTwitterClient();
+    const username = args.username.replace(/^@/, '');
+    const maxResults = Math.min(args.max_results || 100, 1000);
+
+    console.error(`🔍 Fetching followers of @${username}...`);
+
+    const user = await client.getUserByUsername(username);
+    const result = await client.getFollowers(user.id, {
+      maxResults,
+      paginationToken: args.pagination_token,
+    });
+
+    const response = {
+      username: `@${user.username}`,
+      user_id: user.id,
+      followers: result.data.map((u) => ({
+        id: u.id,
+        username: u.username,
+        name: u.name,
+        description: u.description,
+        public_metrics: u.public_metrics,
+      })),
+      meta: result.meta,
+    };
+
+    console.error(`✅ Retrieved ${result.data.length} followers of @${username}`);
+
+    return formatTextResult(JSON.stringify(response, null, 2));
+  } catch (error: any) {
+    console.error(`❌ Error fetching followers:`, error.message);
+    return formatErrorResult(error.message);
+  }
+};
+
+/**
+ * Get users that a user is following
+ */
+const getFollowing = async (args: {
+  username: string;
+  max_results?: number;
+  pagination_token?: string;
+}) => {
+  try {
+    const client = getTwitterClient();
+    const username = args.username.replace(/^@/, '');
+    const maxResults = Math.min(args.max_results || 100, 1000);
+
+    console.error(`🔍 Fetching users followed by @${username}...`);
+
+    const user = await client.getUserByUsername(username);
+    const result = await client.getFollowing(user.id, {
+      maxResults,
+      paginationToken: args.pagination_token,
+    });
+
+    const response = {
+      username: `@${user.username}`,
+      user_id: user.id,
+      following: result.data.map((u) => ({
+        id: u.id,
+        username: u.username,
+        name: u.name,
+        description: u.description,
+        public_metrics: u.public_metrics,
+      })),
+      meta: result.meta,
+    };
+
+    console.error(`✅ Retrieved ${result.data.length} users followed by @${username}`);
+
+    return formatTextResult(JSON.stringify(response, null, 2));
+  } catch (error: any) {
+    console.error(`❌ Error fetching following:`, error.message);
+    return formatErrorResult(error.message);
+  }
+};
+
+/**
  * Get tweets that mention a user
  */
 const getUserMentions = async (args: {
@@ -377,5 +463,55 @@ export const userTools: ToolDefinition[] = [
       required: ['username'],
     },
     handler: getUserMentions,
+  },
+  {
+    name: 'twitter_get_followers',
+    description:
+      'Retrieve the list of users who follow a specific Twitter user. Supports pagination.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        username: {
+          type: 'string',
+          description: 'Twitter username (can include @ prefix or just the username)',
+        },
+        max_results: {
+          type: 'number',
+          description: 'Number of followers to retrieve (1-1000, default: 100)',
+          default: 100,
+        },
+        pagination_token: {
+          type: 'string',
+          description: 'Pagination token from previous response to get next page of results',
+        },
+      },
+      required: ['username'],
+    },
+    handler: getFollowers,
+  },
+  {
+    name: 'twitter_get_following',
+    description:
+      'Retrieve the list of users that a specific Twitter user is following. Supports pagination.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        username: {
+          type: 'string',
+          description: 'Twitter username (can include @ prefix or just the username)',
+        },
+        max_results: {
+          type: 'number',
+          description: 'Number of users to retrieve (1-1000, default: 100)',
+          default: 100,
+        },
+        pagination_token: {
+          type: 'string',
+          description: 'Pagination token from previous response to get next page of results',
+        },
+      },
+      required: ['username'],
+    },
+    handler: getFollowing,
   },
 ];
