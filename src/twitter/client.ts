@@ -174,6 +174,18 @@ function handleApiError(error: unknown, context: string): never {
         `Twitter API error: ${context} Authentication failed (${error.code}). Please check your credentials.`
       );
     }
+    if (error.code === 403) {
+      const detail = (error.data as any)?.detail || '';
+      const reason = (error.data as any)?.reason || '';
+      if (reason === 'client-not-enrolled' || detail.includes('attached to a Project')) {
+        throw new Error(
+          `Twitter API error: Your app is not attached to a Project in the developer portal. ` +
+          `Go to https://developer.twitter.com/en/portal/dashboard, create a Project, ` +
+          `and add your App to it. API v2 requires a Project-attached App.`
+        );
+      }
+      throw new Error(`Twitter API error: ${detail || error.message || 'Forbidden (403)'}`);
+    }
     throw new Error(`Twitter API error: ${error.data?.detail || error.message || 'Unknown error'}`);
   }
   if (error instanceof ApiRequestError) {
@@ -302,7 +314,8 @@ export class TwitterClient {
     } = {}
   ): Promise<TwitterTimelineResponse> {
     try {
-      const maxResults = Math.min(options.maxResults || 10, 100);
+      // Twitter API requires max_results to be between 5 and 100 for user timelines
+      const maxResults = Math.min(Math.max(options.maxResults || 10, 5), 100);
       const params: Record<string, unknown> = {
         max_results: maxResults,
         'tweet.fields': TWEET_FIELDS,
@@ -433,7 +446,8 @@ export class TwitterClient {
     } = {}
   ): Promise<TwitterSearchResponse> {
     try {
-      const maxResults = Math.min(options.maxResults || 10, 100);
+      // Twitter API search requires max_results between 10 and 100
+      const maxResults = Math.min(Math.max(options.maxResults || 10, 10), 100);
       const params: Record<string, unknown> = {
         max_results: maxResults,
         'tweet.fields': TWEET_FIELDS,
@@ -645,7 +659,8 @@ export class TwitterClient {
     } = {}
   ): Promise<TwitterTimelineResponse> {
     try {
-      const maxResults = Math.min(options.maxResults || 10, 100);
+      // Twitter API requires max_results to be between 5 and 100 for mention timelines
+      const maxResults = Math.min(Math.max(options.maxResults || 10, 5), 100);
       const params: Record<string, unknown> = {
         max_results: maxResults,
         'tweet.fields': TWEET_FIELDS,

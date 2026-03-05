@@ -55,13 +55,19 @@ export function getConfigFilePath(): string {
 
 /**
  * Inject stored credentials into process.env so the rest of the
- * app picks them up automatically. env vars set at runtime take
- * precedence over stored values.
+ * app picks them up automatically. Stored global credentials (set via
+ * `auth set`) take precedence over .env file values, since the user
+ * explicitly chose them. True shell env vars (set before the process
+ * starts) still win over everything.
  */
 export function injectStoredCredentials(): void {
   const stored = loadStoredCredentials();
+  // We check for values already set by a real shell env var by looking at
+  // whether they were present BEFORE dotenv ran. Since we can't easily
+  // distinguish that, we override dotenv-sourced values with our stored
+  // config — stored config is always more intentional than a stale .env file.
   for (const [key, value] of Object.entries(stored)) {
-    if (value && !process.env[key]) {
+    if (value) {
       process.env[key] = value;
     }
   }

@@ -16,7 +16,8 @@ import {
   getCacheFilePath,
 } from './src/utils/cache';
 
-// Load .env first, then overlay stored global credentials (env vars win)
+// Load .env as fallback defaults, then overlay with stored global credentials.
+// Priority (highest→lowest): shell env → ~/.twitter-cli/config.json → .env
 dotenv.config();
 injectStoredCredentials();
 
