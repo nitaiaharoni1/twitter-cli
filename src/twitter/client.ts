@@ -729,30 +729,32 @@ export class TwitterClient {
   }
 
   /**
-   * Fetch daily tweet-read usage from GET /2/usage/tweets.
+   * Fetch tweet-read usage from GET /2/usage/tweets.
+   * The endpoint accepts a `days` integer (1–90) and returns aggregate totals
+   * for the project over that window — not per-day buckets.
    */
   async getUsageStats(days: number = 7): Promise<UsageStats> {
     try {
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setUTCDate(startDate.getUTCDate() - days + 1);
-      startDate.setUTCHours(0, 0, 0, 0);
-
+      const clampedDays = Math.min(Math.max(days, 1), 90);
       const resp = await this.readClient.v2.get<any>('usage/tweets', {
-        start_time: startDate.toISOString(),
-        end_time: endDate.toISOString(),
-        granularity: 'day',
+        days: clampedDays,
       });
 
-      const buckets: UsageDailyBucket[] = (resp?.data || []).map((d: any) => ({
-        date: d.date || d.start,
-        tweet_reads: d.tweet_count ?? d.count ?? 0,
-      }));
+      const data = resp?.data ?? resp ?? {};
+      const projectUsage = Number(data.project_usage ?? 0);
+      const projectCap = Number(data.project_cap ?? 0);
 
-      buckets.sort((a, b) => b.date.localeCompare(a.date));
-      const total = buckets.reduce((s, b) => s + b.tweet_reads, 0);
+      // Synthetic single bucket for the requested window
+      const today = new Date().toISOString().slice(0, 10);
+      const buckets: UsageDailyBucket[] = [
+        { date: today, tweet_reads: projectUsage },
+      ];
 
-      return { daily: buckets, total_tweet_reads: total, cap: 0 }; // no cap on pay-per-use
+      return {
+        daily: buckets,
+        total_tweet_reads: projectUsage,
+        cap: projectCap,
+      };
     } catch (error) {
       handleApiError(error, 'For usage stats, ensure TWITTER_BEARER_TOKEN is set.');
     }
