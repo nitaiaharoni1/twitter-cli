@@ -48,8 +48,8 @@ import {
 } from '../utils/cache';
 
 export interface TwitterConfig {
-  apiKey: string;
-  apiSecret: string;
+  apiKey?: string;
+  apiSecret?: string;
   accessToken?: string;
   accessSecret?: string;
   bearerToken?: string;
@@ -211,7 +211,7 @@ export class TwitterClient {
       });
     }
 
-    if (config.accessToken && config.accessSecret) {
+    if (config.accessToken && config.accessSecret && config.apiKey && config.apiSecret) {
       this.writeClient = new TwitterApi({
         appKey: config.apiKey,
         appSecret: config.apiSecret,

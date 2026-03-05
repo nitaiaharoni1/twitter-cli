@@ -20,9 +20,13 @@ export function initializeTwitter(config?: Partial<TwitterConfig>): TwitterClien
   const accessSecret = config?.accessSecret || process.env.TWITTER_ACCESS_SECRET;
   const bearerToken = config?.bearerToken || process.env.TWITTER_BEARER_TOKEN;
 
-  if (!apiKey || !apiSecret) {
+  // A bearer token alone is sufficient for all read operations.
+  // API key + secret are only needed when no bearer token is present (app-only auth fallback)
+  // or when write operations are required.
+  if (!bearerToken && (!apiKey || !apiSecret)) {
     throw new Error(
-      'Twitter credentials not found. Please set TWITTER_API_KEY and TWITTER_API_SECRET environment variables.'
+      'Twitter credentials not found. Please set TWITTER_BEARER_TOKEN (for read operations) ' +
+      'or TWITTER_API_KEY + TWITTER_API_SECRET. Use `twitter-cli auth set` to configure.'
     );
   }
 
