@@ -482,6 +482,42 @@ export class TwitterClient {
   }
 
   /**
+   * Get mention timeline (tweets mentioning a user)
+   */
+  async getUserMentionTimeline(
+    userId: string,
+    options: {
+      maxResults?: number;
+      sinceId?: string;
+      untilId?: string;
+      paginationToken?: string;
+    } = {}
+  ): Promise<TwitterTimelineResponse> {
+    try {
+      const maxResults = Math.min(options.maxResults || 10, 100);
+      const params: Record<string, unknown> = {
+        max_results: maxResults,
+        'tweet.fields': TWEET_FIELDS,
+        expansions: ['author_id', 'referenced_tweets.id'],
+      };
+
+      if (options.sinceId) params.since_id = options.sinceId;
+      if (options.untilId) params.until_id = options.untilId;
+      if (options.paginationToken) params.pagination_token = options.paginationToken;
+
+      const mentions = await this.readClient.v2.userMentionTimeline(userId, params as any);
+
+      return {
+        data: mentions.data.data || [],
+        meta: mentions.data.meta || { result_count: 0 },
+        includes: mentions.data.includes,
+      } as TwitterTimelineResponse;
+    } catch (error) {
+      handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
+    }
+  }
+
+  /**
    * Get current authenticated user
    */
   async getMe(): Promise<TwitterUser> {

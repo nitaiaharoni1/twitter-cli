@@ -160,6 +160,97 @@ const getUserReplies = async (args: {
   }
 };
 
+/**
+ * Get the currently authenticated user (whoami)
+ */
+const whoami = async (_args: Record<string, never>) => {
+  try {
+    const client = getTwitterClient();
+
+    console.error(`🔍 Fetching authenticated user...`);
+
+    const user = await client.getMe();
+
+    const result = {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      description: user.description,
+      created_at: user.created_at,
+      public_metrics: user.public_metrics,
+      verified: user.verified || false,
+      protected: user.protected || false,
+      profile_image_url: user.profile_image_url,
+      url: user.url,
+      profile_url: `https://twitter.com/${user.username}`,
+    };
+
+    console.error(`✅ Authenticated as @${user.username}`);
+
+    return formatTextResult(JSON.stringify(result, null, 2));
+  } catch (error: any) {
+    console.error(`❌ Error fetching authenticated user:`, error.message);
+    return formatErrorResult(error.message);
+  }
+};
+
+/**
+ * Get tweets that mention a user
+ */
+const getUserMentions = async (args: {
+  username: string;
+  max_results?: number;
+  since_id?: string;
+  until_id?: string;
+  pagination_token?: string;
+}) => {
+  try {
+    const client = getTwitterClient();
+    const username = args.username.replace(/^@/, '');
+    const maxResults = Math.min(args.max_results || 10, 100);
+
+    console.error(`🔍 Fetching mentions for @${username}...`);
+
+    const user = await client.getUserByUsername(username);
+    const userId = user.id;
+
+    const timeline = await client.getUserMentionTimeline(userId, {
+      maxResults,
+      sinceId: args.since_id,
+      untilId: args.until_id,
+      paginationToken: args.pagination_token,
+    });
+
+    const result = {
+      username: `@${user.username}`,
+      user_id: userId,
+      mentions: timeline.data.map((tweet) => ({
+        id: tweet.id,
+        text: tweet.text,
+        author_id: tweet.author_id,
+        created_at: tweet.created_at,
+        public_metrics: tweet.public_metrics,
+        conversation_id: tweet.conversation_id,
+        referenced_tweets: tweet.referenced_tweets,
+        url: `https://twitter.com/i/web/status/${tweet.id}`,
+      })),
+      pagination: {
+        next_token: timeline.meta.next_token,
+        result_count: timeline.meta.result_count,
+        newest_id: timeline.meta.newest_id,
+        oldest_id: timeline.meta.oldest_id,
+      },
+    };
+
+    console.error(`✅ Retrieved ${timeline.data.length} mentions for @${username}`);
+
+    return formatTextResult(JSON.stringify(result, null, 2));
+  } catch (error: any) {
+    console.error(`❌ Error fetching user mentions:`, error.message);
+    return formatErrorResult(error.message);
+  }
+};
+
 // Tool definitions
 export const userTools: ToolDefinition[] = [
   {
@@ -243,5 +334,48 @@ export const userTools: ToolDefinition[] = [
       required: ['username'],
     },
     handler: getUserReplies,
+  },
+  {
+    name: 'twitter_whoami',
+    description: 'Get information about the currently authenticated user. Requires OAuth 1.0a credentials.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+    handler: whoami,
+  },
+  {
+    name: 'twitter_get_user_mentions',
+    description:
+      'Retrieve tweets that mention a specific Twitter user. Supports pagination. Useful for monitoring brand mentions or replies directed at an account.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        username: {
+          type: 'string',
+          description: 'Twitter username (can include @ prefix or just the username)',
+        },
+        max_results: {
+          type: 'number',
+          description: 'Number of mentions to retrieve (1-100, default: 10)',
+          default: 10,
+        },
+        since_id: {
+          type: 'string',
+          description: 'Returns results with a tweet ID greater than (more recent than) the specified ID',
+        },
+        until_id: {
+          type: 'string',
+          description: 'Returns results with a tweet ID less than (older than) the specified ID',
+        },
+        pagination_token: {
+          type: 'string',
+          description: 'Pagination token from previous response to get next page of results',
+        },
+      },
+      required: ['username'],
+    },
+    handler: getUserMentions,
   },
 ];
