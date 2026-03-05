@@ -3,7 +3,7 @@
  */
 
 import { getTwitterClient } from '../twitter';
-import { MCPToolDefinition, MCPResult } from '../types/mcp';
+import { ToolDefinition, ToolResult } from '../types';
 import { formatErrorResult, formatTextResult } from '../utils/result-formatter';
 
 /**
@@ -97,7 +97,7 @@ const getUserTimeline = async (args: {
 };
 
 // Tool definitions
-export const tweetTools: MCPToolDefinition[] = [
+export const tweetTools: ToolDefinition[] = [
   {
     name: 'twitter_get_tweet',
     description:

@@ -3,7 +3,7 @@
  */
 
 import { getTwitterClient } from '../twitter';
-import { MCPToolDefinition, MCPResult } from '../types/mcp';
+import { ToolDefinition, ToolResult } from '../types';
 import { formatErrorResult, formatTextResult } from '../utils/result-formatter';
 
 /**
@@ -244,7 +244,7 @@ const deleteTweet = async (args: { tweet_id: string }) => {
 };
 
 // Tool definitions
-export const postingTools: MCPToolDefinition[] = [
+export const postingTools: ToolDefinition[] = [
   {
     name: 'twitter_post_tweet',
     description:

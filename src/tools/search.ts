@@ -3,7 +3,7 @@
  */
 
 import { getTwitterClient } from '../twitter';
-import { MCPToolDefinition, MCPResult } from '../types/mcp';
+import { ToolDefinition, ToolResult } from '../types';
 import { formatErrorResult, formatTextResult } from '../utils/result-formatter';
 
 /**
@@ -64,7 +64,7 @@ const searchTweets = async (args: {
 };
 
 // Tool definitions
-export const searchTools: MCPToolDefinition[] = [
+export const searchTools: ToolDefinition[] = [
   {
     name: 'twitter_search_tweets',
     description:

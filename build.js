@@ -18,16 +18,15 @@ async function build() {
     const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 
     const baseConfig = {
-      entryPoints: ['server.ts'],
+      entryPoints: ['cli.ts'],
       bundle: true,
       platform: 'node',
       target: 'node16',
       format: 'cjs',
       external: [
-        // Keep external dependencies as external
-        '@modelcontextprotocol/sdk',
         'axios',
-        'dotenv'
+        'dotenv',
+        'commander',
       ],
       define: {
         'process.env.NODE_ENV': '"production"',
@@ -45,7 +44,7 @@ async function build() {
     // Build minified version (production)
     await esbuild.build({
       ...baseConfig,
-      outfile: 'dist/server.js',
+      outfile: 'dist/cli.js',
       minify: true,
       sourcemap: false,
       keepNames: false,
@@ -57,8 +56,8 @@ async function build() {
     if (process.argv.includes('--compare')) {
       await esbuild.build({
         ...baseConfig,
-        outfile: 'dist/server.dev.js',
-        minify: false,
+      outfile: 'dist/cli.dev.js',
+      minify: false,
         sourcemap: true,
         keepNames: true,
         legalComments: 'inline',
@@ -67,9 +66,9 @@ async function build() {
     }
 
     // Make the output executable
-    fs.chmodSync('dist/server.js', '755');
-    if (fs.existsSync('dist/server.dev.js')) {
-      fs.chmodSync('dist/server.dev.js', '755');
+    fs.chmodSync('dist/cli.js', '755');
+    if (fs.existsSync('dist/cli.dev.js')) {
+      fs.chmodSync('dist/cli.dev.js', '755');
     }
 
     // Copy package.json for dependencies info and runtime access
@@ -77,9 +76,9 @@ async function build() {
       name: packageJson.name,
       version: packageJson.version,
       description: packageJson.description,
-      main: 'server.js',
+      main: 'cli.js',
       bin: {
-        'mcp-twitter': 'server.js'
+        'twitter-cli': 'cli.js'
       },
       dependencies: packageJson.dependencies,
       engines: packageJson.engines
@@ -99,14 +98,14 @@ async function build() {
     }
 
     console.log('✅ Build completed successfully!');
-    console.log('📦 Output: dist/server.js');
+    console.log('📦 Output: dist/cli.js');
     
     // Show file size comparison
-    const prodStats = fs.statSync('dist/server.js');
+    const prodStats = fs.statSync('dist/cli.js');
     console.log(`📊 Minified bundle size: ${(prodStats.size / 1024).toFixed(2)} KB`);
     
-    if (fs.existsSync('dist/server.dev.js')) {
-      const devStats = fs.statSync('dist/server.dev.js');
+    if (fs.existsSync('dist/cli.dev.js')) {
+      const devStats = fs.statSync('dist/cli.dev.js');
       const savings = ((devStats.size - prodStats.size) / devStats.size * 100).toFixed(1);
       console.log(`📊 Development bundle size: ${(devStats.size / 1024).toFixed(2)} KB`);
       console.log(`💾 Size reduction: ${savings}% (${((devStats.size - prodStats.size) / 1024).toFixed(2)} KB saved)`);

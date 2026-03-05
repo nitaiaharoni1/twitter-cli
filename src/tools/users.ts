@@ -3,7 +3,7 @@
  */
 
 import { getTwitterClient } from '../twitter';
-import { MCPToolDefinition, MCPResult } from '../types/mcp';
+import { ToolDefinition, ToolResult } from '../types';
 import { formatErrorResult, formatTextResult } from '../utils/result-formatter';
 
 /**
@@ -161,7 +161,7 @@ const getUserReplies = async (args: {
 };
 
 // Tool definitions
-export const userTools: MCPToolDefinition[] = [
+export const userTools: ToolDefinition[] = [
   {
     name: 'twitter_get_user_info',
     description:

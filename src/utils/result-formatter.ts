@@ -1,15 +1,15 @@
 /**
- * MCP Result Formatter
- * Centralized formatting for MCP tool responses
+ * Result Formatter
+ * Centralized formatting for CLI tool responses
  */
 
-import { MCPResult, MCPContent } from '../types/mcp';
+import { ToolResult, ToolContent } from '../types';
 
 /**
  * Format text result
  */
-export function formatTextResult(text: string): MCPResult {
-  const content: MCPContent[] = [
+export function formatTextResult(text: string): ToolResult {
+  const content: ToolContent[] = [
     {
       type: 'text',
       text,
@@ -22,8 +22,8 @@ export function formatTextResult(text: string): MCPResult {
 /**
  * Format error MCP result
  */
-export function formatErrorResult(message: string): MCPResult {
-  const content: MCPContent[] = [
+export function formatErrorResult(message: string): ToolResult {
+  const content: ToolContent[] = [
     {
       type: 'text',
       text: JSON.stringify(
