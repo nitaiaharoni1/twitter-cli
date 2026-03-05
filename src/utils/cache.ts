@@ -3,13 +3,19 @@
  *
  * The X API deduplicates charges within a 24-hour UTC day window: fetching
  * the same tweet/user ID more than once in the same UTC day costs nothing
- * extra.  This cache mirrors that semantics locally so CLI commands that
- * run multiple times in a day (or internally resolve the same user/tweet
- * more than once in a single command) never make redundant API calls.
+ * extra.  This cache mirrors those semantics locally so CLI commands never
+ * make redundant API calls.
  *
- * Storage: ~/.twitter-cli/cache.json  (written atomically, mode 600)
- * Eviction: any entry whose UTC-date tag != today is silently dropped on
- *            read, so the file self-prunes on first use each day.
+ * Storage: ~/.twitter-cli/cache.json  (mode 600, written on every mutation)
+ * Eviction: entries whose UTC-date tag != today are dropped on every read.
+ *           The file self-prunes on first use each day.
+ *
+ * User objects are stored under two keys: numeric ID and lowercase username.
+ * That way both getUserById() and getUserByUsername() are cache hits after
+ * the first fetch.
+ *
+ * Special sentinel key '__me__' stores the authenticated user so repeated
+ * process invocations within the same UTC day never re-fetch it.
  */
 
 import * as fs from 'fs';
@@ -58,8 +64,8 @@ function writeStore(store: CacheStore): void {
 }
 
 /**
- * Prune entries that belong to a different UTC day and return the cleaned
- * store.  Called on every read so stale data never leaks into results.
+ * Drop entries that belong to a different UTC day.
+ * Called on every read so stale data never leaks into results.
  */
 function pruneStale(store: CacheStore): CacheStore {
   const today = todayUtc();
@@ -73,70 +79,106 @@ function pruneStale(store: CacheStore): CacheStore {
   return pruned;
 }
 
-function loadStore(): CacheStore {
-  return pruneStale(readStore());
+// In-process store — loaded once per process and kept in memory to avoid
+// repeated disk reads within a single CLI invocation.
+let _store: CacheStore | null = null;
+
+function getStore(): CacheStore {
+  if (!_store) {
+    _store = pruneStale(readStore());
+  }
+  return _store;
+}
+
+function persistStore(): void {
+  if (_store) writeStore(_store);
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export function getCachedTweet(id: string): TwitterTweet | null {
-  const store = loadStore();
-  return store.tweets[id]?.data ?? null;
+  return getStore().tweets[id]?.data ?? null;
 }
 
 export function cacheTweet(tweet: TwitterTweet): void {
-  const store = loadStore();
+  const store = getStore();
   store.tweets[tweet.id] = { utcDate: todayUtc(), data: tweet };
-  writeStore(store);
+  persistStore();
 }
 
 export function cacheTweets(tweets: TwitterTweet[]): void {
   if (tweets.length === 0) return;
-  const store = loadStore();
+  const store = getStore();
   const today = todayUtc();
   for (const tweet of tweets) {
     store.tweets[tweet.id] = { utcDate: today, data: tweet };
   }
-  writeStore(store);
+  persistStore();
 }
 
 export function getCachedUser(idOrUsername: string): TwitterUser | null {
-  const store = loadStore();
   const key = idOrUsername.replace(/^@/, '').toLowerCase();
-  // Check both numeric-ID key and lowercased-username key
-  return store.users[key]?.data ?? null;
+  return getStore().users[key]?.data ?? null;
 }
 
 export function cacheUser(user: TwitterUser): void {
-  const store = loadStore();
+  const store = getStore();
   const today = todayUtc();
-  // Store under both the numeric ID and the lowercased username so either
-  // lookup hits the cache.
   const entry: CacheEntry<TwitterUser> = { utcDate: today, data: user };
+  // Store under both numeric ID and lowercase username for fast two-way lookup
   store.users[user.id] = entry;
-  store.users[user.username.toLowerCase()] = entry;
-  writeStore(store);
+  if (user.username !== '__me__') {
+    store.users[user.username.toLowerCase()] = entry;
+  }
+  persistStore();
+}
+
+export function cacheUsers(users: TwitterUser[]): void {
+  if (users.length === 0) return;
+  const store = getStore();
+  const today = todayUtc();
+  for (const user of users) {
+    const entry: CacheEntry<TwitterUser> = { utcDate: today, data: user };
+    store.users[user.id] = entry;
+    if (user.username !== '__me__') {
+      store.users[user.username.toLowerCase()] = entry;
+    }
+  }
+  persistStore();
 }
 
 /**
- * Given a list of tweet IDs, return which ones are missing from today's
- * cache and therefore need to be fetched from the API.
+ * Return tweet IDs not present in today's cache.
  */
 export function uncachedTweetIds(ids: string[]): string[] {
-  const store = loadStore();
+  const store = getStore();
   return ids.filter((id) => !store.tweets[id]);
 }
 
+/**
+ * Return usernames (lowercase, no @) not present in today's cache.
+ */
+export function uncachedUsernames(usernames: string[]): string[] {
+  const store = getStore();
+  return usernames
+    .map((u) => u.replace(/^@/, '').toLowerCase())
+    .filter((u) => !store.users[u]);
+}
+
 export function getCacheStats(): { tweets: number; users: number; utcDate: string } {
-  const store = loadStore();
+  const store = getStore();
+  // Users are stored under both ID and username — count distinct data objects
+  const seen = new Set<TwitterUser>();
+  for (const entry of Object.values(store.users)) seen.add(entry.data);
   return {
     tweets: Object.keys(store.tweets).length,
-    users: Math.floor(Object.keys(store.users).length / 2), // stored under 2 keys each
+    users: seen.size,
     utcDate: todayUtc(),
   };
 }
 
 export function clearCache(): void {
+  _store = null;
   if (fs.existsSync(CACHE_FILE)) {
     fs.unlinkSync(CACHE_FILE);
   }

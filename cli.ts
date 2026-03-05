@@ -154,15 +154,26 @@ usageCmd
     console.log(`  Write operations  ${writeReady ? '✅ ready' : '❌ not configured'}`);
 
     console.log(`
-Twitter API v2 Tier Limits (pay-per-use, as of 2025)
-─────────────────────────────────────────────────────────────────────
-Pricing model: pay per resource read/written (credits). No subscription.
-Deduplication: same tweet ID fetched multiple times in one UTC day = 1 charge.
-Monthly cap:   2,000,000 tweet reads on pay-per-use plan.
+X API Pay-Per-Use Pricing (no subscription, no monthly cap)
+──────────────────────────────────────────────────────────────────────
+Resource                  Cost / unit    Notes
+──────────────────────────────────────────────────────────────────────
+Posts (tweets): Read      $0.005         per resource fetched
+Users: Read               $0.010         per resource fetched
+Content: Create (tweet)   $0.010         per request (post/reply)
+User Interaction: Create  $0.015         per request (like/retweet)
+Content: Manage (delete)  $0.005         per request
+DM Event: Read            $0.010         per resource
+Following/Followers: Read $0.010         per resource
+Analytics: Read           $0.005         per resource
+Counts: Recent            $0.005         per request
+──────────────────────────────────────────────────────────────────────
+Deduplication: same resource ID fetched multiple times in one UTC day
+= charged once only. This CLI mirrors that with a local 24h cache.
 
 Rate Limits (per 15-minute window, approximate)
   GET /tweets/:id              180 req  (app) / 900 req (user)
-  GET /tweets  (batch ≤100)    300 req  (app)               ← use twitter-cli
+  GET /tweets  (batch ≤100)    300 req  (app)               ← use tweet get-many
   GET /users/:id/tweets        1,500 req (app) / 900 req (user)
   GET /tweets/search/recent    450 req  (app) / 180 req (user)
   POST /tweets                 200 req  (user)
@@ -171,10 +182,18 @@ Rate Limits (per 15-minute window, approximate)
   GET /2/usage/tweets          10 req   (app, 15 min)
 
 Cost-saving features built into this CLI
-  • 24h dedup cache  Tweets and users fetched today are served from
-    ~/.twitter-cli/cache.json — no repeat API call within the same UTC day.
-  • Batch fetching   When multiple tweet IDs are needed, they are sent in
-    one v2.tweets() call (up to 100 IDs) instead of one call per ID.
+  • 24h dedup cache      Tweets and users fetched today are served from
+                         ~/.twitter-cli/cache.json — $0 for repeat reads.
+  • Expansion harvesting  Author user objects returned inside timeline /
+                         search / mentions responses are cached for free —
+                         no separate $0.010 user read needed afterwards.
+  • Batch tweet fetch    tweet get-many sends up to 100 IDs per API call
+                         instead of 1 call per ID (saves rate-limit quota).
+  • Batch user fetch     getUsersByUsernames() sends up to 100 usernames
+                         per API call instead of N individual calls.
+  • getMe() cache        Authenticated user ID resolved once per process
+                         and once per UTC day — not re-fetched on every
+                         like/retweet/unretweet.
 
 Credentials are read from (in priority order):
   1. Environment variables (TWITTER_API_KEY, etc.)
@@ -192,9 +211,9 @@ usageCmd
     const client = getTwitterClient();
     try {
       const stats = await client.getUsageStats(parseInt(opts.days, 10));
-      const pct = ((stats.total_tweet_reads / stats.cap) * 100).toFixed(2);
+      const estimatedCost = (stats.total_tweet_reads * 0.005).toFixed(2);
       console.log(`Tweet reads — last ${opts.days} day(s)\n`);
-      console.log(`  Total: ${stats.total_tweet_reads.toLocaleString()} / ${stats.cap.toLocaleString()} monthly cap (${pct}%)\n`);
+      console.log(`  Total: ${stats.total_tweet_reads.toLocaleString()} reads  (~$${estimatedCost} at $0.005/read)\n`);
       if (stats.daily.length > 0) {
         const maxReads = Math.max(...stats.daily.map((b) => b.tweet_reads), 1);
         for (const bucket of stats.daily) {

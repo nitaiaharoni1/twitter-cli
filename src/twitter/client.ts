@@ -2,17 +2,37 @@
  * Twitter API Client
  * Handles OAuth authentication and API requests to Twitter API v2
  *
- * Cost-minimisation strategy
- * ─────────────────────────
- * The X API charges per unique resource (tweet / user) returned within a
- * 24-hour UTC day window.  Fetching the same ID twice in one day costs
- * nothing extra — the API deduplicates.  We mirror that locally:
+ * Cost-minimisation strategy (pay-per-use pricing)
+ * ─────────────────────────────────────────────────
+ * X API charges per unique *resource* returned within a 24h UTC day:
+ *   Posts (tweets) read       $0.005 / resource
+ *   Users read                $0.010 / resource
+ *   Content created (tweets)  $0.010 / request
+ *   User interactions (like/RT) $0.015 / request
  *
- *   1. Cache-first reads  — every getTweet / getUser call checks the
- *      24h UTC cache before hitting the API.
- *   2. Batch tweet fetches — v2.tweets() accepts up to 100 IDs per call,
- *      so getTweets([...]) makes at most ⌈n/100⌉ requests instead of n.
- *   3. Minimal fields      — we only request the fields we actually use.
+ * Techniques used here to minimise those charges:
+ *
+ *  1. 24h UTC cache (src/utils/cache.ts)
+ *     Every tweet and user fetched today is written to disk.
+ *     The same ID within the same UTC day → zero API call.
+ *
+ *  2. Harvest expansion includes
+ *     Timeline, search, and mentions responses already carry user objects
+ *     inside their `includes.users` array at no extra cost (they were
+ *     requested via `expansions: ['author_id']`).  We cache those users
+ *     immediately so any follow-up `getUserByUsername` is a cache hit.
+ *
+ *  3. Batch tweet fetches (v2.tweets, up to 100 IDs)
+ *     One API call for 100 IDs instead of 100 separate calls.
+ *     Rate-limit tokens: 100 → 1.
+ *
+ *  4. Batch user fetches (v2.usersByUsernames, up to 100 usernames)
+ *     One API call for N usernames instead of N separate calls.
+ *
+ *  5. Instance-level getMe() cache
+ *     like/retweet/unlike/unretweet each need the authenticated user ID.
+ *     We resolve it once per process and reuse, avoiding repeated $0.010
+ *     user reads in a sequence of write operations.
  */
 
 import { TwitterApi, TwitterApiReadWrite, ApiResponseError, ApiRequestError } from 'twitter-api-v2';
@@ -22,7 +42,9 @@ import {
   cacheTweet,
   cacheTweets,
   cacheUser,
+  cacheUsers,
   uncachedTweetIds,
+  uncachedUsernames,
 } from '../utils/cache';
 
 export interface TwitterConfig {
@@ -116,7 +138,7 @@ export interface UsageDailyBucket {
 export interface UsageStats {
   daily: UsageDailyBucket[];
   total_tweet_reads: number;
-  cap: number; // 2,000,000 for pay-per-use
+  cap: number;
 }
 
 const TWEET_FIELDS = [
@@ -139,7 +161,7 @@ const USER_FIELDS = [
   'url',
 ] as const;
 
-const BATCH_SIZE = 100; // max IDs per v2.tweets() call
+const BATCH_SIZE = 100;
 
 function handleApiError(error: unknown, context: string): never {
   if (error instanceof ApiResponseError) {
@@ -161,10 +183,21 @@ function handleApiError(error: unknown, context: string): never {
   throw new Error(`Twitter API error: ${msg}`);
 }
 
+/** Extract and cache any users embedded in an API response's `includes` */
+function harvestIncludedUsers(includes?: { users?: TwitterUser[] }): void {
+  const users = includes?.users;
+  if (users && users.length > 0) {
+    cacheUsers(users);
+  }
+}
+
 export class TwitterClient {
   private config: TwitterConfig;
   private readClient: TwitterApi;
   private writeClient: TwitterApiReadWrite | null = null;
+
+  /** Cached authenticated user — resolved once per process to avoid $0.010 user reads on every write op */
+  private _me: TwitterUser | null = null;
 
   constructor(config: TwitterConfig) {
     this.config = config;
@@ -190,7 +223,7 @@ export class TwitterClient {
 
   /**
    * Get a single tweet by ID.
-   * Checks the 24h cache first — an API call is only made on a cache miss.
+   * Cache-first: costs $0 if already fetched today.
    */
   async getTweet(tweetId: string): Promise<TwitterTweet> {
     const cached = getCachedTweet(tweetId);
@@ -200,34 +233,32 @@ export class TwitterClient {
       const resp = await this.readClient.v2.singleTweet(tweetId, {
         'tweet.fields': TWEET_FIELDS,
         expansions: ['author_id', 'referenced_tweets.id'],
+        'user.fields': USER_FIELDS,
       });
 
-      if (!resp.data) {
-        throw new Error(`Tweet ${tweetId} not found`);
-      }
+      if (!resp.data) throw new Error(`Tweet ${tweetId} not found`);
 
       const tweet = resp.data as TwitterTweet;
       cacheTweet(tweet);
+      // Harvest the author user from includes — free user data, cache it
+      harvestIncludedUsers(resp.includes as any);
       return tweet;
     } catch (error) {
-      if (error instanceof Error && !error.message.startsWith('Twitter')) {
-        throw error;
-      }
+      if (error instanceof Error && !error.message.startsWith('Twitter')) throw error;
       handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
     }
   }
 
   /**
-   * Fetch multiple tweets in batches of up to 100 IDs per API call.
-   * Already-cached IDs are returned from cache without an API call.
-   * This is the most cost-efficient way to read tweets in bulk because:
-   *   - one v2.tweets() call for 100 IDs = 1 rate-limit token used
-   *   - 100 singleTweet() calls = 100 rate-limit tokens used
+   * Fetch multiple tweets in batches of 100 IDs per API call.
+   * Cache-first: already-cached IDs cost $0. Remaining IDs are sent as
+   * one call per batch of 100 (the maximum the API supports), so N tweets
+   * cost ⌈N/100⌉ rate-limit tokens instead of N.
+   * User objects in includes are harvested and cached for free.
    */
   async getTweets(tweetIds: string[]): Promise<TwitterTweet[]> {
     if (tweetIds.length === 0) return [];
 
-    // Serve cached entries immediately
     const results = new Map<string, TwitterTweet>();
     for (const id of tweetIds) {
       const cached = getCachedTweet(id);
@@ -237,30 +268,29 @@ export class TwitterClient {
     const missing = uncachedTweetIds(tweetIds);
     if (missing.length > 0) {
       try {
-        // Chunk into batches of BATCH_SIZE
         for (let i = 0; i < missing.length; i += BATCH_SIZE) {
           const chunk = missing.slice(i, i + BATCH_SIZE);
           const resp = await this.readClient.v2.tweets(chunk, {
             'tweet.fields': TWEET_FIELDS,
             expansions: ['author_id', 'referenced_tweets.id'],
+            'user.fields': USER_FIELDS,
           });
           const fetched = (resp.data || []) as TwitterTweet[];
           cacheTweets(fetched);
-          for (const tweet of fetched) {
-            results.set(tweet.id, tweet);
-          }
+          harvestIncludedUsers(resp.includes as any);
+          for (const tweet of fetched) results.set(tweet.id, tweet);
         }
       } catch (error) {
         handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
       }
     }
 
-    // Return in original order, omitting any IDs that were not found
     return tweetIds.flatMap((id) => (results.has(id) ? [results.get(id)!] : []));
   }
 
   /**
-   * Get user timeline (tweets by a user)
+   * Get user timeline (tweets by a user).
+   * Harvests included user objects so no separate user lookup is needed.
    */
   async getUserTimeline(
     userId: string,
@@ -277,6 +307,7 @@ export class TwitterClient {
         max_results: maxResults,
         'tweet.fields': TWEET_FIELDS,
         expansions: ['author_id', 'referenced_tweets.id'],
+        'user.fields': USER_FIELDS,
       };
 
       if (options.sinceId) params.since_id = options.sinceId;
@@ -286,6 +317,7 @@ export class TwitterClient {
       const timeline = await this.readClient.v2.userTimeline(userId, params as any);
       const tweets = (timeline.data.data || []) as TwitterTweet[];
       cacheTweets(tweets);
+      harvestIncludedUsers(timeline.data.includes as any);
 
       return {
         data: tweets,
@@ -299,7 +331,7 @@ export class TwitterClient {
 
   /**
    * Get user by username.
-   * Cache-first: checks by lowercase username before calling the API.
+   * Cache-first. On a miss, fetches a single user ($0.010).
    */
   async getUserByUsername(username: string): Promise<TwitterUser> {
     const clean = username.replace(/^@/, '');
@@ -311,24 +343,59 @@ export class TwitterClient {
         'user.fields': USER_FIELDS,
       });
 
-      if (!resp.data) {
-        throw new Error(`User @${clean} not found`);
-      }
+      if (!resp.data) throw new Error(`User @${clean} not found`);
 
       const user = resp.data as TwitterUser;
       cacheUser(user);
       return user;
     } catch (error) {
-      if (error instanceof Error && !error.message.startsWith('Twitter')) {
-        throw error;
-      }
+      if (error instanceof Error && !error.message.startsWith('Twitter')) throw error;
       handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
     }
   }
 
   /**
-   * Get user by ID.
-   * Cache-first: checks by numeric ID before calling the API.
+   * Get multiple users by username in one batch call.
+   * Cache-first: only uncached usernames hit the API.
+   * One v2.usersByUsernames() call for up to 100 names vs N individual calls.
+   */
+  async getUsersByUsernames(usernames: string[]): Promise<TwitterUser[]> {
+    if (usernames.length === 0) return [];
+
+    const clean = usernames.map((u) => u.replace(/^@/, ''));
+    const results = new Map<string, TwitterUser>();
+
+    for (const name of clean) {
+      const cached = getCachedUser(name);
+      if (cached) results.set(name.toLowerCase(), cached);
+    }
+
+    const missing = uncachedUsernames(clean);
+    if (missing.length > 0) {
+      try {
+        for (let i = 0; i < missing.length; i += BATCH_SIZE) {
+          const chunk = missing.slice(i, i + BATCH_SIZE);
+          const resp = await this.readClient.v2.usersByUsernames(chunk, {
+            'user.fields': USER_FIELDS,
+          });
+          const fetched = (resp.data || []) as TwitterUser[];
+          cacheUsers(fetched);
+          for (const user of fetched) results.set(user.username.toLowerCase(), user);
+        }
+      } catch (error) {
+        handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
+      }
+    }
+
+    return clean.flatMap((name) => {
+      const u = results.get(name.toLowerCase());
+      return u ? [u] : [];
+    });
+  }
+
+  /**
+   * Get user by numeric ID.
+   * Cache-first.
    */
   async getUserById(userId: string): Promise<TwitterUser> {
     const cached = getCachedUser(userId);
@@ -339,23 +406,20 @@ export class TwitterClient {
         'user.fields': USER_FIELDS,
       });
 
-      if (!resp.data) {
-        throw new Error(`User ${userId} not found`);
-      }
+      if (!resp.data) throw new Error(`User ${userId} not found`);
 
       const user = resp.data as TwitterUser;
       cacheUser(user);
       return user;
     } catch (error) {
-      if (error instanceof Error && !error.message.startsWith('Twitter')) {
-        throw error;
-      }
+      if (error instanceof Error && !error.message.startsWith('Twitter')) throw error;
       handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
     }
   }
 
   /**
-   * Search tweets (requires Basic tier or higher)
+   * Search tweets (requires pay-per-use or Basic tier for search access).
+   * Harvests included users from the response.
    */
   async searchTweets(
     query: string,
@@ -374,6 +438,7 @@ export class TwitterClient {
         max_results: maxResults,
         'tweet.fields': TWEET_FIELDS,
         expansions: ['author_id', 'referenced_tweets.id'],
+        'user.fields': USER_FIELDS,
       };
 
       if (options.sinceId) params.since_id = options.sinceId;
@@ -385,6 +450,7 @@ export class TwitterClient {
       const search = await this.readClient.v2.search(query, params as any);
       const tweets = (search.data.data || []) as TwitterTweet[];
       cacheTweets(tweets);
+      harvestIncludedUsers(search.data.includes as any);
 
       return {
         data: tweets,
@@ -401,11 +467,11 @@ export class TwitterClient {
           const detail = error.data?.detail || '';
           if (detail.toLowerCase().includes('search') || detail.toLowerCase().includes('tier')) {
             throw new Error(
-              'Twitter API error: Search API requires Basic tier ($100/mo) or higher. Free tier does not include search functionality.'
+              'Twitter API error: Search API requires pay-per-use or Basic tier access.'
             );
           }
           throw new Error(
-            'Twitter API error: Authentication failed (403). For search, provide TWITTER_BEARER_TOKEN and ensure your account has Basic tier access.'
+            'Twitter API error: Authentication failed (403). Provide TWITTER_BEARER_TOKEN with search access.'
           );
         }
         throw new Error(`Twitter API error: ${error.data?.detail || error.message || 'Unknown error'}`);
@@ -419,9 +485,9 @@ export class TwitterClient {
   }
 
   /**
-   * Post a tweet.
-   * After posting, the returned ID is fetched via getTweets() (batch-eligible)
-   * rather than an extra singleTweet() call.
+   * Post a tweet ($0.010 / request).
+   * After posting, uses getTweets() (batch + cache-eligible) instead of
+   * a separate singleTweet() call.
    */
   async postTweet(text: string, options: {
     replyToTweetId?: string;
@@ -446,13 +512,10 @@ export class TwitterClient {
       const resp = await this.writeClient.v2.tweet(tweetData);
       if (!resp.data) throw new Error('Failed to create tweet');
 
-      // Use getTweets() so the result is cached and counts toward dedup
       const fetched = await this.getTweets([resp.data.id]);
       return fetched[0] ?? { id: resp.data.id, text, created_at: new Date().toISOString() };
     } catch (error) {
-      if (error instanceof Error && !error.message.startsWith('Twitter')) {
-        throw error;
-      }
+      if (error instanceof Error && !error.message.startsWith('Twitter')) throw error;
       handleApiError(
         error,
         'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
@@ -468,7 +531,8 @@ export class TwitterClient {
   }
 
   /**
-   * Like a tweet
+   * Like a tweet ($0.015 / request).
+   * Uses cached user ID — no extra $0.010 user read.
    */
   async likeTweet(userId: string, tweetId: string): Promise<{ liked: boolean }> {
     if (!this.writeClient) {
@@ -488,7 +552,7 @@ export class TwitterClient {
   }
 
   /**
-   * Unlike a tweet
+   * Unlike a tweet ($0.015 / request).
    */
   async unlikeTweet(userId: string, tweetId: string): Promise<{ liked: boolean }> {
     if (!this.writeClient) {
@@ -508,7 +572,7 @@ export class TwitterClient {
   }
 
   /**
-   * Retweet a tweet
+   * Retweet a tweet ($0.015 / request).
    */
   async retweet(userId: string, tweetId: string): Promise<{ retweeted: boolean }> {
     if (!this.writeClient) {
@@ -528,7 +592,7 @@ export class TwitterClient {
   }
 
   /**
-   * Unretweet a tweet
+   * Unretweet a tweet ($0.015 / request).
    */
   async unretweet(userId: string, tweetId: string): Promise<{ retweeted: boolean }> {
     if (!this.writeClient) {
@@ -548,7 +612,7 @@ export class TwitterClient {
   }
 
   /**
-   * Delete a tweet
+   * Delete a tweet ($0.005 / request for Content: Manage).
    */
   async deleteTweet(tweetId: string): Promise<{ deleted: boolean }> {
     if (!this.writeClient) {
@@ -568,7 +632,8 @@ export class TwitterClient {
   }
 
   /**
-   * Get mention timeline (tweets mentioning a user)
+   * Get mention timeline (tweets mentioning a user).
+   * Harvests included users.
    */
   async getUserMentionTimeline(
     userId: string,
@@ -585,6 +650,7 @@ export class TwitterClient {
         max_results: maxResults,
         'tweet.fields': TWEET_FIELDS,
         expansions: ['author_id', 'referenced_tweets.id'],
+        'user.fields': USER_FIELDS,
       };
 
       if (options.sinceId) params.since_id = options.sinceId;
@@ -594,6 +660,7 @@ export class TwitterClient {
       const mentions = await this.readClient.v2.userMentionTimeline(userId, params as any);
       const tweets = (mentions.data.data || []) as TwitterTweet[];
       cacheTweets(tweets);
+      harvestIncludedUsers(mentions.data.includes as any);
 
       return {
         data: tweets,
@@ -606,24 +673,39 @@ export class TwitterClient {
   }
 
   /**
-   * Get current authenticated user
+   * Get current authenticated user.
+   * Result is cached in this instance (not just disk cache) so repeated
+   * calls within the same process — e.g. like() then retweet() — cost
+   * $0.010 once instead of $0.010 × N.
    */
   async getMe(): Promise<TwitterUser> {
+    if (this._me) return this._me;
+
+    // Also check disk cache (covers re-runs within same UTC day)
+    const diskCached = getCachedUser('__me__');
+    if (diskCached) {
+      this._me = diskCached;
+      return diskCached;
+    }
+
     if (!this.writeClient) {
       throw new Error(
         'Getting current user requires OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
       );
     }
+
     try {
       const me = await this.writeClient.v2.me({ 'user.fields': USER_FIELDS });
       if (!me.data) throw new Error('Failed to get current user');
+
       const user = me.data as TwitterUser;
       cacheUser(user);
+      // Also cache under the special '__me__' sentinel so re-runs today are free
+      cacheUser({ ...user, id: '__me__', username: '__me__' });
+      this._me = user;
       return user;
     } catch (error) {
-      if (error instanceof Error && !error.message.startsWith('Twitter')) {
-        throw error;
-      }
+      if (error instanceof Error && !error.message.startsWith('Twitter')) throw error;
       handleApiError(
         error,
         'Getting current user requires OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
@@ -632,8 +714,7 @@ export class TwitterClient {
   }
 
   /**
-   * Fetch daily tweet-read usage from the X API /2/usage/tweets endpoint.
-   * Returns the last N days sorted newest-first.
+   * Fetch daily tweet-read usage from GET /2/usage/tweets.
    */
   async getUsageStats(days: number = 7): Promise<UsageStats> {
     try {
@@ -654,10 +735,9 @@ export class TwitterClient {
       }));
 
       buckets.sort((a, b) => b.date.localeCompare(a.date));
-
       const total = buckets.reduce((s, b) => s + b.tweet_reads, 0);
 
-      return { daily: buckets, total_tweet_reads: total, cap: 2_000_000 };
+      return { daily: buckets, total_tweet_reads: total, cap: 0 }; // no cap on pay-per-use
     } catch (error) {
       handleApiError(error, 'For usage stats, ensure TWITTER_BEARER_TOKEN is set.');
     }
