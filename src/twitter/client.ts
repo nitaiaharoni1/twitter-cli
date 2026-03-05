@@ -1,9 +1,29 @@
 /**
  * Twitter API Client
  * Handles OAuth authentication and API requests to Twitter API v2
+ *
+ * Cost-minimisation strategy
+ * ─────────────────────────
+ * The X API charges per unique resource (tweet / user) returned within a
+ * 24-hour UTC day window.  Fetching the same ID twice in one day costs
+ * nothing extra — the API deduplicates.  We mirror that locally:
+ *
+ *   1. Cache-first reads  — every getTweet / getUser call checks the
+ *      24h UTC cache before hitting the API.
+ *   2. Batch tweet fetches — v2.tweets() accepts up to 100 IDs per call,
+ *      so getTweets([...]) makes at most ⌈n/100⌉ requests instead of n.
+ *   3. Minimal fields      — we only request the fields we actually use.
  */
 
 import { TwitterApi, TwitterApiReadWrite, ApiResponseError, ApiRequestError } from 'twitter-api-v2';
+import {
+  getCachedTweet,
+  getCachedUser,
+  cacheTweet,
+  cacheTweets,
+  cacheUser,
+  uncachedTweetIds,
+} from '../utils/cache';
 
 export interface TwitterConfig {
   apiKey: string;
@@ -88,6 +108,17 @@ export interface TwitterTimelineResponse {
   };
 }
 
+export interface UsageDailyBucket {
+  date: string;
+  tweet_reads: number;
+}
+
+export interface UsageStats {
+  daily: UsageDailyBucket[];
+  total_tweet_reads: number;
+  cap: number; // 2,000,000 for pay-per-use
+}
+
 const TWEET_FIELDS = [
   'created_at',
   'public_metrics',
@@ -107,6 +138,8 @@ const USER_FIELDS = [
   'profile_image_url',
   'url',
 ] as const;
+
+const BATCH_SIZE = 100; // max IDs per v2.tweets() call
 
 function handleApiError(error: unknown, context: string): never {
   if (error instanceof ApiResponseError) {
@@ -139,7 +172,6 @@ export class TwitterClient {
     if (config.bearerToken) {
       this.readClient = new TwitterApi(config.bearerToken);
     } else {
-      // Fallback to app-only auth if no bearer token
       this.readClient = new TwitterApi({
         appKey: config.apiKey,
         appSecret: config.apiSecret,
@@ -157,26 +189,74 @@ export class TwitterClient {
   }
 
   /**
-   * Get a single tweet by ID
+   * Get a single tweet by ID.
+   * Checks the 24h cache first — an API call is only made on a cache miss.
    */
   async getTweet(tweetId: string): Promise<TwitterTweet> {
+    const cached = getCachedTweet(tweetId);
+    if (cached) return cached;
+
     try {
-      const tweet = await this.readClient.v2.singleTweet(tweetId, {
+      const resp = await this.readClient.v2.singleTweet(tweetId, {
         'tweet.fields': TWEET_FIELDS,
         expansions: ['author_id', 'referenced_tweets.id'],
       });
 
-      if (!tweet.data) {
+      if (!resp.data) {
         throw new Error(`Tweet ${tweetId} not found`);
       }
 
-      return tweet.data as TwitterTweet;
+      const tweet = resp.data as TwitterTweet;
+      cacheTweet(tweet);
+      return tweet;
     } catch (error) {
       if (error instanceof Error && !error.message.startsWith('Twitter')) {
         throw error;
       }
       handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
     }
+  }
+
+  /**
+   * Fetch multiple tweets in batches of up to 100 IDs per API call.
+   * Already-cached IDs are returned from cache without an API call.
+   * This is the most cost-efficient way to read tweets in bulk because:
+   *   - one v2.tweets() call for 100 IDs = 1 rate-limit token used
+   *   - 100 singleTweet() calls = 100 rate-limit tokens used
+   */
+  async getTweets(tweetIds: string[]): Promise<TwitterTweet[]> {
+    if (tweetIds.length === 0) return [];
+
+    // Serve cached entries immediately
+    const results = new Map<string, TwitterTweet>();
+    for (const id of tweetIds) {
+      const cached = getCachedTweet(id);
+      if (cached) results.set(id, cached);
+    }
+
+    const missing = uncachedTweetIds(tweetIds);
+    if (missing.length > 0) {
+      try {
+        // Chunk into batches of BATCH_SIZE
+        for (let i = 0; i < missing.length; i += BATCH_SIZE) {
+          const chunk = missing.slice(i, i + BATCH_SIZE);
+          const resp = await this.readClient.v2.tweets(chunk, {
+            'tweet.fields': TWEET_FIELDS,
+            expansions: ['author_id', 'referenced_tweets.id'],
+          });
+          const fetched = (resp.data || []) as TwitterTweet[];
+          cacheTweets(fetched);
+          for (const tweet of fetched) {
+            results.set(tweet.id, tweet);
+          }
+        }
+      } catch (error) {
+        handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
+      }
+    }
+
+    // Return in original order, omitting any IDs that were not found
+    return tweetIds.flatMap((id) => (results.has(id) ? [results.get(id)!] : []));
   }
 
   /**
@@ -204,9 +284,11 @@ export class TwitterClient {
       if (options.paginationToken) params.pagination_token = options.paginationToken;
 
       const timeline = await this.readClient.v2.userTimeline(userId, params as any);
+      const tweets = (timeline.data.data || []) as TwitterTweet[];
+      cacheTweets(tweets);
 
       return {
-        data: timeline.data.data || [],
+        data: tweets,
         meta: timeline.data.meta || { result_count: 0 },
         includes: timeline.data.includes,
       } as TwitterTimelineResponse;
@@ -216,21 +298,26 @@ export class TwitterClient {
   }
 
   /**
-   * Get user by username
+   * Get user by username.
+   * Cache-first: checks by lowercase username before calling the API.
    */
   async getUserByUsername(username: string): Promise<TwitterUser> {
-    try {
-      const cleanUsername = username.replace(/^@/, '');
+    const clean = username.replace(/^@/, '');
+    const cached = getCachedUser(clean);
+    if (cached) return cached;
 
-      const user = await this.readClient.v2.userByUsername(cleanUsername, {
+    try {
+      const resp = await this.readClient.v2.userByUsername(clean, {
         'user.fields': USER_FIELDS,
       });
 
-      if (!user.data) {
-        throw new Error(`User @${cleanUsername} not found`);
+      if (!resp.data) {
+        throw new Error(`User @${clean} not found`);
       }
 
-      return user.data as TwitterUser;
+      const user = resp.data as TwitterUser;
+      cacheUser(user);
+      return user;
     } catch (error) {
       if (error instanceof Error && !error.message.startsWith('Twitter')) {
         throw error;
@@ -240,19 +327,25 @@ export class TwitterClient {
   }
 
   /**
-   * Get user by ID
+   * Get user by ID.
+   * Cache-first: checks by numeric ID before calling the API.
    */
   async getUserById(userId: string): Promise<TwitterUser> {
+    const cached = getCachedUser(userId);
+    if (cached) return cached;
+
     try {
-      const user = await this.readClient.v2.user(userId, {
+      const resp = await this.readClient.v2.user(userId, {
         'user.fields': USER_FIELDS,
       });
 
-      if (!user.data) {
+      if (!resp.data) {
         throw new Error(`User ${userId} not found`);
       }
 
-      return user.data as TwitterUser;
+      const user = resp.data as TwitterUser;
+      cacheUser(user);
+      return user;
     } catch (error) {
       if (error instanceof Error && !error.message.startsWith('Twitter')) {
         throw error;
@@ -290,9 +383,11 @@ export class TwitterClient {
       if (options.endTime) params.end_time = options.endTime;
 
       const search = await this.readClient.v2.search(query, params as any);
+      const tweets = (search.data.data || []) as TwitterTweet[];
+      cacheTweets(tweets);
 
       return {
-        data: search.data.data || [],
+        data: tweets,
         meta: search.data.meta || { result_count: 0 },
         includes: search.data.includes,
       } as TwitterSearchResponse;
@@ -324,7 +419,9 @@ export class TwitterClient {
   }
 
   /**
-   * Post a tweet
+   * Post a tweet.
+   * After posting, the returned ID is fetched via getTweets() (batch-eligible)
+   * rather than an extra singleTweet() call.
    */
   async postTweet(text: string, options: {
     replyToTweetId?: string;
@@ -340,21 +437,18 @@ export class TwitterClient {
       const tweetData: any = { text };
 
       if (options.replyToTweetId) {
-        tweetData.reply = {
-          in_reply_to_tweet_id: options.replyToTweetId,
-        };
+        tweetData.reply = { in_reply_to_tweet_id: options.replyToTweetId };
         if (options.excludeReplyUserIds) {
           tweetData.reply.exclude_reply_user_ids = options.excludeReplyUserIds;
         }
       }
 
-      const tweet = await this.writeClient.v2.tweet(tweetData);
+      const resp = await this.writeClient.v2.tweet(tweetData);
+      if (!resp.data) throw new Error('Failed to create tweet');
 
-      if (!tweet.data) {
-        throw new Error('Failed to create tweet');
-      }
-
-      return await this.getTweet(tweet.data.id);
+      // Use getTweets() so the result is cached and counts toward dedup
+      const fetched = await this.getTweets([resp.data.id]);
+      return fetched[0] ?? { id: resp.data.id, text, created_at: new Date().toISOString() };
     } catch (error) {
       if (error instanceof Error && !error.message.startsWith('Twitter')) {
         throw error;
@@ -370,10 +464,7 @@ export class TwitterClient {
    * Reply to a tweet
    */
   async replyToTweet(tweetId: string, text: string, excludeReplyUserIds?: string[]): Promise<TwitterTweet> {
-    return this.postTweet(text, {
-      replyToTweetId: tweetId,
-      excludeReplyUserIds,
-    });
+    return this.postTweet(text, { replyToTweetId: tweetId, excludeReplyUserIds });
   }
 
   /**
@@ -385,7 +476,6 @@ export class TwitterClient {
         'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
       );
     }
-
     try {
       const result = await this.writeClient.v2.like(userId, tweetId);
       return { liked: result.data?.liked || false };
@@ -406,7 +496,6 @@ export class TwitterClient {
         'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
       );
     }
-
     try {
       await this.writeClient.v2.unlike(userId, tweetId);
       return { liked: false };
@@ -427,7 +516,6 @@ export class TwitterClient {
         'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
       );
     }
-
     try {
       const result = await this.writeClient.v2.retweet(userId, tweetId);
       return { retweeted: result.data?.retweeted || false };
@@ -448,7 +536,6 @@ export class TwitterClient {
         'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
       );
     }
-
     try {
       await this.writeClient.v2.unretweet(userId, tweetId);
       return { retweeted: false };
@@ -469,7 +556,6 @@ export class TwitterClient {
         'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
       );
     }
-
     try {
       await this.writeClient.v2.deleteTweet(tweetId);
       return { deleted: true };
@@ -506,9 +592,11 @@ export class TwitterClient {
       if (options.paginationToken) params.pagination_token = options.paginationToken;
 
       const mentions = await this.readClient.v2.userMentionTimeline(userId, params as any);
+      const tweets = (mentions.data.data || []) as TwitterTweet[];
+      cacheTweets(tweets);
 
       return {
-        data: mentions.data.data || [],
+        data: tweets,
         meta: mentions.data.meta || { result_count: 0 },
         includes: mentions.data.includes,
       } as TwitterTimelineResponse;
@@ -526,17 +614,12 @@ export class TwitterClient {
         'Getting current user requires OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
       );
     }
-
     try {
-      const me = await this.writeClient.v2.me({
-        'user.fields': USER_FIELDS,
-      });
-
-      if (!me.data) {
-        throw new Error('Failed to get current user');
-      }
-
-      return me.data as TwitterUser;
+      const me = await this.writeClient.v2.me({ 'user.fields': USER_FIELDS });
+      if (!me.data) throw new Error('Failed to get current user');
+      const user = me.data as TwitterUser;
+      cacheUser(user);
+      return user;
     } catch (error) {
       if (error instanceof Error && !error.message.startsWith('Twitter')) {
         throw error;
@@ -545,6 +628,38 @@ export class TwitterClient {
         error,
         'Getting current user requires OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
       );
+    }
+  }
+
+  /**
+   * Fetch daily tweet-read usage from the X API /2/usage/tweets endpoint.
+   * Returns the last N days sorted newest-first.
+   */
+  async getUsageStats(days: number = 7): Promise<UsageStats> {
+    try {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setUTCDate(startDate.getUTCDate() - days + 1);
+      startDate.setUTCHours(0, 0, 0, 0);
+
+      const resp = await this.readClient.v2.get<any>('usage/tweets', {
+        start_time: startDate.toISOString(),
+        end_time: endDate.toISOString(),
+        granularity: 'day',
+      });
+
+      const buckets: UsageDailyBucket[] = (resp?.data || []).map((d: any) => ({
+        date: d.date || d.start,
+        tweet_reads: d.tweet_count ?? d.count ?? 0,
+      }));
+
+      buckets.sort((a, b) => b.date.localeCompare(a.date));
+
+      const total = buckets.reduce((s, b) => s + b.tweet_reads, 0);
+
+      return { daily: buckets, total_tweet_reads: total, cap: 2_000_000 };
+    } catch (error) {
+      handleApiError(error, 'For usage stats, ensure TWITTER_BEARER_TOKEN is set.');
     }
   }
 }

@@ -96,6 +96,39 @@ const getUserTimeline = async (args: {
   }
 };
 
+/**
+ * Get multiple tweets by ID in one batched call (up to 100 IDs)
+ */
+const getTweets = async (args: { tweet_ids: string[] }) => {
+  try {
+    const client = getTwitterClient();
+    const ids = args.tweet_ids.slice(0, 100);
+
+    console.error(`🔍 Fetching ${ids.length} tweet(s) (batched)...`);
+
+    const tweets = await client.getTweets(ids);
+
+    const results = tweets.map((tweet) => ({
+      id: tweet.id,
+      text: tweet.text,
+      author_id: tweet.author_id,
+      created_at: tweet.created_at,
+      conversation_id: tweet.conversation_id,
+      public_metrics: tweet.public_metrics,
+      in_reply_to_user_id: tweet.in_reply_to_user_id,
+      referenced_tweets: tweet.referenced_tweets,
+      url: `https://twitter.com/i/web/status/${tweet.id}`,
+    }));
+
+    console.error(`✅ Retrieved ${tweets.length} tweet(s)`);
+
+    return formatTextResult(JSON.stringify({ count: results.length, tweets: results }, null, 2));
+  } catch (error: any) {
+    console.error(`❌ Error fetching tweets:`, error.message);
+    return formatErrorResult(error.message);
+  }
+};
+
 // Tool definitions
 export const tweetTools: ToolDefinition[] = [
   {
@@ -146,6 +179,23 @@ export const tweetTools: ToolDefinition[] = [
       required: ['username'],
     },
     handler: getUserTimeline,
+  },
+  {
+    name: 'twitter_get_tweets',
+    description:
+      'Fetch up to 100 tweets by ID in a single batched API call. Far more cost-efficient than fetching tweets one by one. Already-cached tweet IDs (fetched earlier today) are served locally with no API call at all.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tweet_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of tweet IDs to fetch (max 100)',
+        },
+      },
+      required: ['tweet_ids'],
+    },
+    handler: getTweets,
   },
 ];
 

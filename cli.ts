@@ -10,6 +10,11 @@ import {
   getConfigFilePath,
   StoredCredentials,
 } from './src/config/credentials';
+import {
+  getCacheStats,
+  clearCache,
+  getCacheFilePath,
+} from './src/utils/cache';
 
 // Load .env first, then overlay stored global credentials (env vars win)
 dotenv.config();
@@ -120,11 +125,13 @@ auth
     console.log(`✅ Credentials cleared (${getConfigFilePath()})`);
   });
 
-// ─── Usage / rate limit command ───────────────────────────────────────────────
+// ─── Usage / rate limit commands ─────────────────────────────────────────────
 
-program
-  .command('usage')
-  .description('Show Twitter API tier limits and current credential status')
+const usageCmd = program.command('usage').description('API usage, cost tracking, and rate limit information');
+
+usageCmd
+  .command('info')
+  .description('Show credential status, tier limits, and rate limit reference (no API call)')
   .action(() => {
     const stored = loadStoredCredentials();
     const hasBearerToken = !!(process.env.TWITTER_BEARER_TOKEN || stored.TWITTER_BEARER_TOKEN);
@@ -147,29 +154,78 @@ program
     console.log(`  Write operations  ${writeReady ? '✅ ready' : '❌ not configured'}`);
 
     console.log(`
-Twitter API v2 Tier Limits (as of 2025)
-────────────────────────────────────────────────────────────
-Tier        Price      Post tweets/mo   Read tweets/mo   Search
-────────────────────────────────────────────────────────────
-Free        $0         1,500            10,000           ❌
-Basic       $100/mo    3,000            1,000,000        ✅ (recent, 7 days)
-Pro         $5,000/mo  300,000          1,000,000        ✅ (full archive)
-Enterprise  Custom     Unlimited        Unlimited        ✅ (full archive)
-────────────────────────────────────────────────────────────
+Twitter API v2 Tier Limits (pay-per-use, as of 2025)
+─────────────────────────────────────────────────────────────────────
+Pricing model: pay per resource read/written (credits). No subscription.
+Deduplication: same tweet ID fetched multiple times in one UTC day = 1 charge.
+Monthly cap:   2,000,000 tweet reads on pay-per-use plan.
 
 Rate Limits (per 15-minute window, approximate)
-  GET /tweets/:id            180 req  (app) / 900 req (user)
-  GET /users/:id/tweets      1,500 req (app) / 900 req (user)
-  GET /tweets/search/recent  450 req  (app) / 180 req (user)
-  POST /tweets               200 req  (user)
-  POST /users/:id/likes      1,000 req (user)
-  POST /users/:id/retweets   50 req   (user)
+  GET /tweets/:id              180 req  (app) / 900 req (user)
+  GET /tweets  (batch ≤100)    300 req  (app)               ← use twitter-cli
+  GET /users/:id/tweets        1,500 req (app) / 900 req (user)
+  GET /tweets/search/recent    450 req  (app) / 180 req (user)
+  POST /tweets                 200 req  (user)
+  POST /users/:id/likes        1,000 req (user)
+  POST /users/:id/retweets     50 req   (user)
+  GET /2/usage/tweets          10 req   (app, 15 min)
+
+Cost-saving features built into this CLI
+  • 24h dedup cache  Tweets and users fetched today are served from
+    ~/.twitter-cli/cache.json — no repeat API call within the same UTC day.
+  • Batch fetching   When multiple tweet IDs are needed, they are sent in
+    one v2.tweets() call (up to 100 IDs) instead of one call per ID.
 
 Credentials are read from (in priority order):
   1. Environment variables (TWITTER_API_KEY, etc.)
   2. ~/.twitter-cli/config.json  (use \`twitter-cli auth set\`)
   3. .env file in current directory
 `);
+  });
+
+usageCmd
+  .command('stats')
+  .description('Fetch live daily tweet-read consumption from the X API')
+  .option('-d, --days <number>', 'Number of past days to show', '7')
+  .action(async (opts) => {
+    const { getTwitterClient } = await import('./src/twitter');
+    const client = getTwitterClient();
+    try {
+      const stats = await client.getUsageStats(parseInt(opts.days, 10));
+      const pct = ((stats.total_tweet_reads / stats.cap) * 100).toFixed(2);
+      console.log(`Tweet reads — last ${opts.days} day(s)\n`);
+      console.log(`  Total: ${stats.total_tweet_reads.toLocaleString()} / ${stats.cap.toLocaleString()} monthly cap (${pct}%)\n`);
+      if (stats.daily.length > 0) {
+        const maxReads = Math.max(...stats.daily.map((b) => b.tweet_reads), 1);
+        for (const bucket of stats.daily) {
+          const bar = '█'.repeat(Math.round((bucket.tweet_reads / maxReads) * 20)).padEnd(20);
+          console.log(`  ${bucket.date}  ${bar}  ${bucket.tweet_reads.toLocaleString()}`);
+        }
+      } else {
+        console.log('  No data returned for this period.');
+      }
+    } catch (error: any) {
+      console.error(error.message);
+      process.exit(1);
+    }
+  });
+
+usageCmd
+  .command('cache')
+  .description('Show or clear the local 24h deduplication cache')
+  .option('--clear', 'Delete the cache file')
+  .action((opts) => {
+    if (opts.clear) {
+      clearCache();
+      console.log(`✅ Cache cleared (${getCacheFilePath()})`);
+      return;
+    }
+    const stats = getCacheStats();
+    console.log(`Local dedup cache  (${getCacheFilePath()})\n`);
+    console.log(`  UTC date   ${stats.utcDate}`);
+    console.log(`  Tweets     ${stats.tweets}`);
+    console.log(`  Users      ${stats.users}`);
+    console.log('\nEntries auto-expire at midnight UTC.');
   });
 
 // ─── Tweet commands ───────────────────────────────────────────────────────────
@@ -183,6 +239,15 @@ tweet
     const { tweetTools } = await import('./src/tools/tweets');
     const handler = tweetTools.find((t) => t.name === 'twitter_get_tweet')!.handler;
     printResult(await handler({ tweet_id }));
+  });
+
+tweet
+  .command('get-many <ids...>')
+  .description('Get multiple tweets by ID in a single batched API call (up to 100, cost-efficient)')
+  .action(async (ids: string[]) => {
+    const { tweetTools } = await import('./src/tools/tweets');
+    const handler = tweetTools.find((t) => t.name === 'twitter_get_tweets')!.handler;
+    printResult(await handler({ tweet_ids: ids }));
   });
 
 tweet
