@@ -14,8 +14,8 @@
  * That way both getUserById() and getUserByUsername() are cache hits after
  * the first fetch.
  *
- * Special sentinel key '__me__' stores the authenticated user so repeated
- * process invocations within the same UTC day never re-fetch it.
+ * Sentinel keys '__me__' or '__me__:userId' store the authenticated user per
+ * profile so repeated invocations within the same UTC day never re-fetch it.
  */
 
 import * as fs from 'fs';
@@ -125,11 +125,11 @@ export function cacheUser(user: TwitterUser): void {
   const store = getStore();
   const today = todayUtc();
   const entry: CacheEntry<TwitterUser> = { utcDate: today, data: user };
-  // Always store under the username key (lowercased), including '__me__' sentinel.
+  // Always store under the username key (lowercased), including sentinels.
   store.users[user.username.toLowerCase()] = entry;
-  // Also store under numeric ID — but skip for the '__me__' sentinel username
-  // since it carries the real user id and we don't want to double-store it.
-  if (user.username !== '__me__' && user.id !== '__me__') {
+  // Also store under numeric ID — skip for __me__ sentinels to avoid overwriting real user.
+  const isMeSentinel = user.username === '__me__' || user.username.startsWith('__me__:');
+  if (!isMeSentinel && user.id !== '__me__') {
     store.users[user.id] = entry;
   }
   persistStore();
@@ -142,7 +142,8 @@ export function cacheUsers(users: TwitterUser[]): void {
   for (const user of users) {
     const entry: CacheEntry<TwitterUser> = { utcDate: today, data: user };
     store.users[user.username.toLowerCase()] = entry;
-    if (user.username !== '__me__' && user.id !== '__me__') {
+    const isMeSentinel = user.username === '__me__' || user.username.startsWith('__me__:');
+    if (!isMeSentinel && user.id !== '__me__') {
       store.users[user.id] = entry;
     }
   }

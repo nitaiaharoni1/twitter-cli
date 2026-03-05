@@ -8,6 +8,8 @@ import {
   loadStoredCredentials,
   clearCredentials,
   getConfigFilePath,
+  listProfiles,
+  setDefaultProfile,
   StoredCredentials,
 } from './src/config/credentials';
 import {
@@ -16,10 +18,18 @@ import {
   getCacheFilePath,
 } from './src/utils/cache';
 
+function getProfileFromArgv(): string | undefined {
+  const i = process.argv.indexOf('--profile');
+  if (i !== -1 && process.argv[i + 1] && !process.argv[i + 1].startsWith('-')) {
+    return process.argv[i + 1];
+  }
+  return undefined;
+}
+
 // Load .env as fallback defaults, then overlay with stored global credentials.
 // Priority (highest→lowest): shell env → ~/.twitter-cli/config.json → .env
 dotenv.config();
-injectStoredCredentials();
+injectStoredCredentials(getProfileFromArgv());
 
 import { initializeTwitter } from './src/twitter';
 
@@ -49,15 +59,17 @@ const program = new Command();
 program
   .name('twitter-cli')
   .description('Command-line interface for the Twitter (X) API v2')
-  .version(version, '-v, --version');
+  .version(version, '-v, --version')
+  .option('--profile <name>', 'Use a specific account profile (default: configured default)');
 
 // ─── Auth commands ─────────────────────────────────────────────────────────────
 
-const auth = program.command('auth').description('Manage API credentials stored globally on this machine');
+const auth = program.command('auth').description('Manage API credentials and account profiles');
 
 auth
   .command('set')
-  .description('Set one or more API credentials (stored in ~/.twitter-cli/config.json)')
+  .description('Set credentials for a profile (creates or updates the profile)')
+  .option('--profile <name>', 'Profile name (e.g. OpenSketchAI, nitaiaharoni). Default: "default"')
   .option('--api-key <key>', 'Twitter API key (consumer key)')
   .option('--api-secret <secret>', 'Twitter API secret (consumer secret)')
   .option('--bearer-token <token>', 'Bearer token for read-only operations')
@@ -76,17 +88,49 @@ auth
       process.exit(1);
     }
 
-    saveCredentials(toSave);
+    const profile = opts.profile || 'default';
+    saveCredentials(toSave, profile);
     const keys = Object.keys(toSave).join(', ');
-    console.log(`✅ Saved: ${keys}`);
+    console.log(`✅ Saved to profile "${profile}": ${keys}`);
     console.log(`   Config file: ${getConfigFilePath()}`);
   });
 
 auth
-  .command('show')
-  .description('Show currently stored credentials (values are masked)')
+  .command('use <profile>')
+  .description('Set the default account profile')
+  .action((profile: string) => {
+    try {
+      setDefaultProfile(profile);
+      console.log(`✅ Default profile set to "${profile}"`);
+    } catch (error: any) {
+      console.error(error.message);
+      process.exit(1);
+    }
+  });
+
+auth
+  .command('list')
+  .description('List all account profiles and show which is default')
   .action(() => {
-    const stored = loadStoredCredentials();
+    const profiles = listProfiles();
+    if (profiles.length === 0) {
+      console.log('No profiles configured. Use `twitter-cli auth set --profile <name>` to add one.');
+      console.log(`Config file: ${getConfigFilePath()}`);
+      return;
+    }
+    console.log(`Account profiles (${getConfigFilePath()})\n`);
+    for (const p of profiles) {
+      console.log(`  ${p.name}${p.isDefault ? '  (default)' : ''}`);
+    }
+  });
+
+auth
+  .command('show')
+  .description('Show stored credentials for a profile (values are masked)')
+  .option('--profile <name>', 'Profile to show (default: current/default profile)')
+  .action((opts) => {
+    const profile = opts.profile || getProfileFromArgv();
+    const stored = loadStoredCredentials(profile);
     const keys: Array<keyof StoredCredentials> = [
       'TWITTER_API_KEY',
       'TWITTER_API_SECRET',
@@ -96,12 +140,13 @@ auth
     ];
 
     if (Object.keys(stored).length === 0) {
-      console.log('No credentials stored. Use `twitter-cli auth set` to configure.');
+      console.log(`No credentials for profile "${profile || 'default'}". Use \`twitter-cli auth set --profile <name>\` to configure.`);
       console.log(`Config file: ${getConfigFilePath()}`);
       return;
     }
 
-    console.log(`Stored credentials (${getConfigFilePath()}):\n`);
+    const profileLabel = profile ? ` (profile: ${profile})` : '';
+    console.log(`Stored credentials${profileLabel} (${getConfigFilePath()}):\n`);
     for (const key of keys) {
       const val = stored[key];
       if (val) {
@@ -198,8 +243,11 @@ Cost-saving features built into this CLI
 
 Credentials are read from (in priority order):
   1. Environment variables (TWITTER_API_KEY, etc.)
-  2. ~/.twitter-cli/config.json  (use \`twitter-cli auth set\`)
+  2. ~/.twitter-cli/config.json  (use \`twitter-cli auth set --profile <name>\`)
   3. .env file in current directory
+
+Multi-account: use \`auth set --profile OpenSketchAI\` and \`auth use OpenSketchAI\`
+  to switch. Or pass \`--profile OpenSketchAI\` to any command.
 `);
   });
 

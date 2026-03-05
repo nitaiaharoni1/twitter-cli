@@ -979,11 +979,14 @@ export class TwitterClient {
   async getMe(): Promise<TwitterUser> {
     if (this._me) return this._me;
 
+    // Cache key is profile-aware (access token prefix = user ID) so multi-account works.
+    const userIdFromToken = this.config.accessToken?.split('-')[0];
+    const meCacheKey = userIdFromToken ? `__me__:${userIdFromToken}` : '__me__';
+
     // Also check disk cache (covers re-runs within same UTC day)
-    const diskCached = getCachedUser('__me__');
+    const diskCached = getCachedUser(meCacheKey);
     if (diskCached) {
-      // The sentinel entry has username='__me__'; recover the real user object
-      // from the numeric-id slot which was stored separately with correct username.
+      // The sentinel entry has synthetic username; recover the real user from the id slot.
       const realUser = getCachedUser(diskCached.id) ?? diskCached;
       this._me = realUser;
       return realUser;
@@ -1001,10 +1004,8 @@ export class TwitterClient {
 
       const user = me.data as TwitterUser;
       cacheUser(user); // stores under real id + real username
-      // Store sentinel under '__me__' key with real id so next run avoids the API call.
-      // We store a copy with username='__me__' just for the sentinel key lookup;
-      // getMe() below will always return `user` (real data), not the sentinel copy.
-      cacheUser({ ...user, username: '__me__' });
+      // Store sentinel under profile-specific key so next run avoids the API call.
+      cacheUser({ ...user, username: meCacheKey });
       this._me = user;
       return user;
     } catch (error) {
