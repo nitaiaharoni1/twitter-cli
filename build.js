@@ -23,11 +23,9 @@ async function build() {
       platform: 'node',
       target: 'node16',
       format: 'cjs',
-      external: [
-        'axios',
-        'dotenv',
-        'commander',
-      ],
+      // Bundle everything — the dist/cli.js must be fully self-contained so
+      // the Homebrew formula only needs Node.js itself as a dependency.
+      external: [],
       define: {
         'process.env.NODE_ENV': '"production"',
         '__PACKAGE_VERSION__': `"${packageJson.version}"`
