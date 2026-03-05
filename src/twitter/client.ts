@@ -699,8 +699,11 @@ export class TwitterClient {
     // Also check disk cache (covers re-runs within same UTC day)
     const diskCached = getCachedUser('__me__');
     if (diskCached) {
-      this._me = diskCached;
-      return diskCached;
+      // The sentinel entry has username='__me__'; recover the real user object
+      // from the numeric-id slot which was stored separately with correct username.
+      const realUser = getCachedUser(diskCached.id) ?? diskCached;
+      this._me = realUser;
+      return realUser;
     }
 
     if (!this.writeClient) {
@@ -714,9 +717,10 @@ export class TwitterClient {
       if (!me.data) throw new Error('Failed to get current user');
 
       const user = me.data as TwitterUser;
-      cacheUser(user);
-      // Cache a sentinel entry keyed by '__me__' but preserving the real id/username,
-      // so getMe() lookups today avoid a billable API call while still returning correct data.
+      cacheUser(user); // stores under real id + real username
+      // Store sentinel under '__me__' key with real id so next run avoids the API call.
+      // We store a copy with username='__me__' just for the sentinel key lookup;
+      // getMe() below will always return `user` (real data), not the sentinel copy.
       cacheUser({ ...user, username: '__me__' });
       this._me = user;
       return user;
