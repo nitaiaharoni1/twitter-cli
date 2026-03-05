@@ -715,8 +715,9 @@ export class TwitterClient {
 
       const user = me.data as TwitterUser;
       cacheUser(user);
-      // Also cache under the special '__me__' sentinel so re-runs today are free
-      cacheUser({ ...user, id: '__me__', username: '__me__' });
+      // Cache a sentinel entry keyed by '__me__' but preserving the real id/username,
+      // so getMe() lookups today avoid a billable API call while still returning correct data.
+      cacheUser({ ...user, username: '__me__' });
       this._me = user;
       return user;
     } catch (error) {

@@ -125,10 +125,12 @@ export function cacheUser(user: TwitterUser): void {
   const store = getStore();
   const today = todayUtc();
   const entry: CacheEntry<TwitterUser> = { utcDate: today, data: user };
-  // Store under both numeric ID and lowercase username for fast two-way lookup
-  store.users[user.id] = entry;
-  if (user.username !== '__me__') {
-    store.users[user.username.toLowerCase()] = entry;
+  // Always store under the username key (lowercased), including '__me__' sentinel.
+  store.users[user.username.toLowerCase()] = entry;
+  // Also store under numeric ID — but skip for the '__me__' sentinel username
+  // since it carries the real user id and we don't want to double-store it.
+  if (user.username !== '__me__' && user.id !== '__me__') {
+    store.users[user.id] = entry;
   }
   persistStore();
 }
@@ -139,9 +141,9 @@ export function cacheUsers(users: TwitterUser[]): void {
   const today = todayUtc();
   for (const user of users) {
     const entry: CacheEntry<TwitterUser> = { utcDate: today, data: user };
-    store.users[user.id] = entry;
-    if (user.username !== '__me__') {
-      store.users[user.username.toLowerCase()] = entry;
+    store.users[user.username.toLowerCase()] = entry;
+    if (user.username !== '__me__' && user.id !== '__me__') {
+      store.users[user.id] = entry;
     }
   }
   persistStore();
