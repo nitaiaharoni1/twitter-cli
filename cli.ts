@@ -88,7 +88,9 @@ auth
       process.exit(1);
     }
 
-    const profile = opts.profile || 'default';
+    // Root `program.option('--profile')` can shadow the subcommand's `--profile` in Commander,
+    // leaving `opts.profile` undefined — fall back to argv parsing.
+    const profile = opts.profile || getProfileFromArgv() || 'default';
     saveCredentials(toSave, profile);
     const keys = Object.keys(toSave).join(', ');
     console.log(`✅ Saved to profile "${profile}": ${keys}`);
@@ -551,6 +553,15 @@ post
     const { postingTools } = await import('./src/tools/posting');
     const handler = postingTools.find((t) => t.name === 'twitter_unlike_tweet')!.handler;
     printResult(await handler({ tweet_id }));
+  });
+
+post
+  .command('quote <tweet_id> <text>')
+  .description('Quote-tweet (comment on) an existing tweet')
+  .action(async (tweet_id: string, text: string) => {
+    const { postingTools } = await import('./src/tools/posting');
+    const handler = postingTools.find((t) => t.name === 'twitter_quote_tweet')!.handler;
+    printResult(await handler({ tweet_id, text }));
   });
 
 post

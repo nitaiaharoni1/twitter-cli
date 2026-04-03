@@ -80,6 +80,7 @@ const getUserTweets = async (args: {
         public_metrics: tweet.public_metrics,
         in_reply_to_user_id: tweet.in_reply_to_user_id,
         referenced_tweets: tweet.referenced_tweets,
+        reply_settings: (tweet as any).reply_settings,
         url: `https://twitter.com/i/web/status/${tweet.id}`,
       })),
       pagination: {
@@ -141,6 +142,7 @@ const getUserReplies = async (args: {
         public_metrics: tweet.public_metrics,
         in_reply_to_user_id: tweet.in_reply_to_user_id,
         referenced_tweets: tweet.referenced_tweets,
+        reply_settings: (tweet as any).reply_settings,
         url: `https://twitter.com/i/web/status/${tweet.id}`,
       })),
       pagination: {

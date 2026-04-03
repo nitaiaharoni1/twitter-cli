@@ -149,6 +149,7 @@ const TWEET_FIELDS = [
   'referenced_tweets',
   'conversation_id',
   'entities',
+  'reply_settings',
 ] as const;
 
 const USER_FIELDS = [
@@ -256,7 +257,6 @@ export class TwitterClient {
       harvestIncludedUsers(resp.includes as any);
       return tweet;
     } catch (error) {
-      if (error instanceof Error && !error.message.startsWith('Twitter')) throw error;
       handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
     }
   }
@@ -362,7 +362,6 @@ export class TwitterClient {
       cacheUser(user);
       return user;
     } catch (error) {
-      if (error instanceof Error && !error.message.startsWith('Twitter')) throw error;
       handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
     }
   }
@@ -425,7 +424,6 @@ export class TwitterClient {
       cacheUser(user);
       return user;
     } catch (error) {
-      if (error instanceof Error && !error.message.startsWith('Twitter')) throw error;
       handleApiError(error, 'For read operations, ensure TWITTER_BEARER_TOKEN is set.');
     }
   }
@@ -506,6 +504,7 @@ export class TwitterClient {
   async postTweet(text: string, options: {
     replyToTweetId?: string;
     excludeReplyUserIds?: string[];
+    quoteTweetId?: string;
   } = {}): Promise<TwitterTweet> {
     if (!this.writeClient) {
       throw new Error(
@@ -523,13 +522,16 @@ export class TwitterClient {
         }
       }
 
+      if (options.quoteTweetId) {
+        tweetData.quote_tweet_id = options.quoteTweetId;
+      }
+
       const resp = await this.writeClient.v2.tweet(tweetData);
       if (!resp.data) throw new Error('Failed to create tweet');
 
       const fetched = await this.getTweets([resp.data.id]);
       return fetched[0] ?? { id: resp.data.id, text, created_at: new Date().toISOString() };
     } catch (error) {
-      if (error instanceof Error && !error.message.startsWith('Twitter')) throw error;
       handleApiError(
         error,
         'Write operations require OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'
@@ -1009,7 +1011,6 @@ export class TwitterClient {
       this._me = user;
       return user;
     } catch (error) {
-      if (error instanceof Error && !error.message.startsWith('Twitter')) throw error;
       handleApiError(
         error,
         'Getting current user requires OAuth 1.0a authentication. Please provide TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET.'

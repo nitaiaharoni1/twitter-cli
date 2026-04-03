@@ -218,6 +218,43 @@ const unretweet = async (args: { tweet_id: string }) => {
 };
 
 /**
+ * Quote-tweet (comment on) a tweet
+ */
+const quoteTweet = async (args: { tweet_id: string; text: string }) => {
+  try {
+    const client = getTwitterClient();
+
+    if (!args.text || args.text.trim().length === 0) {
+      throw new Error('Quote text is required');
+    }
+
+    if (args.text.length > 280) {
+      throw new Error('Quote text must be 280 characters or less');
+    }
+
+    console.error(`💬 Quote-tweeting ${args.tweet_id}...`);
+
+    const tweet = await client.postTweet(args.text, { quoteTweetId: args.tweet_id });
+
+    const result = {
+      success: true,
+      tweet_id: tweet.id,
+      text: tweet.text,
+      created_at: tweet.created_at,
+      public_metrics: tweet.public_metrics,
+      url: `https://twitter.com/i/web/status/${tweet.id}`,
+    };
+
+    console.error(`✅ Quote-tweet posted successfully: ${tweet.id}`);
+
+    return formatTextResult(JSON.stringify(result, null, 2));
+  } catch (error: any) {
+    console.error(`❌ Error quote-tweeting:`, error.message);
+    return formatErrorResult(error.message);
+  }
+};
+
+/**
  * Delete a tweet
  */
 const deleteTweet = async (args: { tweet_id: string }) => {
@@ -362,6 +399,26 @@ export const postingTools: ToolDefinition[] = [
       required: ['tweet_id'],
     },
     handler: unretweet,
+  },
+  {
+    name: 'twitter_quote_tweet',
+    description:
+      'Quote-tweet (comment on) an existing tweet. Requires user authentication. Note: as of Feb 2026, X API restricts quote-tweets unless the author has @mentioned or engaged with you first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tweet_id: {
+          type: 'string',
+          description: 'Tweet ID to quote',
+        },
+        text: {
+          type: 'string',
+          description: 'Comment text to add with the quote (max 280 characters)',
+        },
+      },
+      required: ['tweet_id', 'text'],
+    },
+    handler: quoteTweet,
   },
   {
     name: 'twitter_delete_tweet',
